@@ -2317,6 +2317,8 @@ TEST_F(FormatTest, LayoutStatementsAroundPreprocessorDirectives) {
                "  x();\n"
                "}",
                getLLVMStyleWithColumns(28));
+  verifyFormat("#if 1\n"
+               "int i;");
 }
 
 TEST_F(FormatTest, LayoutBlockInsideParens) {
@@ -3711,8 +3713,14 @@ TEST_F(FormatTest, UnderstandsTemplateParameters) {
   verifyGoogleFormat("A<A<int> > a;");
   verifyGoogleFormat("A<A<A<int> > > a;");
   verifyGoogleFormat("A<A<A<A<int> > > > a;");
+  verifyGoogleFormat("A<::A<int>> a;");
+  verifyGoogleFormat("A<::A> a;");
+  verifyGoogleFormat("A< ::A> a;");
+  verifyGoogleFormat("A< ::A<int> > a;");
   EXPECT_EQ("A<A<A<A>>> a;", format("A<A<A<A> >> a;", getGoogleStyle()));
   EXPECT_EQ("A<A<A<A>>> a;", format("A<A<A<A>> > a;", getGoogleStyle()));
+  EXPECT_EQ("A<::A<int>> a;", format("A< ::A<int>> a;", getGoogleStyle()));
+  EXPECT_EQ("A<::A<int>> a;", format("A<::A<int> > a;", getGoogleStyle()));
 
   verifyFormat("test >> a >> b;");
   verifyFormat("test << a >> b;");
@@ -5960,6 +5968,21 @@ TEST_F(FormatTest, ConfigurableUseOfTab) {
                    Tab));
 
   Tab.UseTab = FormatStyle::UT_ForIndentation;
+  verifyFormat("T t[] = {\n"
+               "\taaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,\n"
+               "\taaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,\n"
+               "\taaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,\n"
+               "\taaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,\n"
+               "\taaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,\n"
+               "\taaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+               "};",
+               Tab);
+  verifyFormat("enum A {\n"
+               "\ta1,\n"
+               "\ta2,\n"
+               "\ta3\n"
+               "};",
+               Tab);
   EXPECT_EQ("if (aaaaaaaa && // q\n"
             "    bb)         // w\n"
             "\t;",
@@ -6844,6 +6867,13 @@ TEST_F(FormatTest, SupportsCRLF) {
                    "  b; \\\r\n"
                    "  c; d; \r\n",
                    getGoogleStyle()));
+}
+
+TEST_F(FormatTest, MunchSemicolonAfterBlocks) {
+  verifyFormat("MY_CLASS(C) {\n"
+               "  int i;\n"
+               "  int j;\n"
+               "};");
 }
 
 } // end namespace tooling
