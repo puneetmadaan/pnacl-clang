@@ -464,6 +464,10 @@ private:
     next();
     if (CurrentToken == NULL)
       return;
+    if (CurrentToken->Tok.is(tok::numeric_constant)) {
+      CurrentToken->SpacesRequiredBefore = 1;
+      return;
+    }
     // Hashes in the middle of a line can lead to any strange token
     // sequence.
     if (CurrentToken->Tok.getIdentifierInfo() == NULL)
@@ -523,11 +527,17 @@ private:
     if (CurrentToken != NULL)
       CurrentToken = CurrentToken->Next;
 
-    // Reset token type in case we have already looked at it and then recovered
-    // from an error (e.g. failure to find the matching >).
-    if (CurrentToken != NULL && CurrentToken->Type != TT_LambdaLSquare &&
-        CurrentToken->Type != TT_ImplicitStringLiteral)
-      CurrentToken->Type = TT_Unknown;
+    if (CurrentToken != NULL) {
+      // Reset token type in case we have already looked at it and then
+      // recovered from an error (e.g. failure to find the matching >).
+      if (CurrentToken->Type != TT_LambdaLSquare &&
+          CurrentToken->Type != TT_ImplicitStringLiteral)
+        CurrentToken->Type = TT_Unknown;
+      if (CurrentToken->Role)
+        CurrentToken->Role.reset(NULL);
+      CurrentToken->FakeLParens.clear();
+      CurrentToken->FakeRParens = 0;
+    }
   }
 
   /// \brief A struct to hold information valid in a specific context, e.g.
@@ -1045,9 +1055,9 @@ void TokenAnnotator::calculateFormattingInformation(AnnotatedLine &Line) {
   while (Current != NULL) {
     if (Current->Type == TT_LineComment)
       Current->SpacesRequiredBefore = Style.SpacesBeforeTrailingComments;
-    else
-      Current->SpacesRequiredBefore =
-          spaceRequiredBefore(Line, *Current) ? 1 : 0;
+    else if (Current->SpacesRequiredBefore == 0 &&
+             spaceRequiredBefore(Line, *Current))
+      Current->SpacesRequiredBefore = 1;
 
     Current->MustBreakBefore =
         Current->MustBreakBefore || mustBreakBefore(Line, *Current);
@@ -1482,10 +1492,13 @@ void TokenAnnotator::printDebugInfo(const AnnotatedLine &Line) {
                  << " C=" << Tok->CanBreakBefore << " T=" << Tok->Type
                  << " S=" << Tok->SpacesRequiredBefore
                  << " P=" << Tok->SplitPenalty << " Name=" << Tok->Tok.getName()
-                 << " PPK=" << Tok->PackingKind << " FakeLParens=";
+                 << " L=" << Tok->TotalLength << " PPK=" << Tok->PackingKind
+                 << " FakeLParens=";
     for (unsigned i = 0, e = Tok->FakeLParens.size(); i != e; ++i)
       llvm::errs() << Tok->FakeLParens[i] << "/";
     llvm::errs() << " FakeRParens=" << Tok->FakeRParens << "\n";
+    if (Tok->Next == NULL)
+      assert(Tok == Line.Last);
     Tok = Tok->Next;
   }
   llvm::errs() << "----\n";
