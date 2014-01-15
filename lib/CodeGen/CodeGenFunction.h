@@ -1631,10 +1631,6 @@ public:
   llvm::Value *EmitDynamicCast(llvm::Value *V, const CXXDynamicCastExpr *DCE);
   llvm::Value* EmitCXXUuidofExpr(const CXXUuidofExpr *E);
 
-  void MaybeEmitStdInitializerListCleanup(llvm::Value *loc, const Expr *init);
-  void EmitStdInitializerListCleanup(llvm::Value *loc,
-                                     const InitListExpr *init);
-
   /// \brief Situations in which we might emit a check for the suitability of a
   ///        pointer or glvalue.
   enum TypeCheckKind {
@@ -2242,10 +2238,8 @@ public:
   void EmitObjCAutoreleasePoolCleanup(llvm::Value *Ptr);
   void EmitObjCMRRAutoreleasePoolPop(llvm::Value *Ptr); 
 
-  /// EmitReferenceBindingToExpr - Emits a reference binding to the passed in
-  /// expression. Will emit a temporary variable if E is not an LValue.
-  RValue EmitReferenceBindingToExpr(const Expr* E,
-                                    const NamedDecl *InitializedDecl);
+  /// \brief Emits a reference binding to the passed in expression.
+  RValue EmitReferenceBindingToExpr(const Expr *E);
 
   //===--------------------------------------------------------------------===//
   //                           Expression Emission

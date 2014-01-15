@@ -2153,10 +2153,6 @@ Sema::ActOnCXXInClassMemberInitializer(Decl *D, SourceLocation InitLoc,
 
   ExprResult Init = InitExpr;
   if (!FD->getType()->isDependentType() && !InitExpr->isTypeDependent()) {
-    if (isa<InitListExpr>(InitExpr) && isStdInitializerList(FD->getType(), 0)) {
-      Diag(FD->getLocation(), diag::warn_dangling_std_initializer_list)
-        << /*at end of ctor*/1 << InitExpr->getSourceRange();
-    }
     InitializedEntity Entity = InitializedEntity::InitializeMember(FD);
     InitializationKind Kind = FD->getInClassInitStyle() == ICIS_ListInit
         ? InitializationKind::CreateDirectList(InitExpr->getLocStart())
@@ -2479,15 +2475,7 @@ static void CheckForDanglingReferenceOrPointer(Sema &S, ValueDecl *Member,
     }
   }
 
-  if (isa<MaterializeTemporaryExpr>(Init->IgnoreParens())) {
-    // Taking the address of a temporary will be diagnosed as a hard error.
-    if (IsPointer)
-      return;
-
-    S.Diag(Init->getExprLoc(), diag::warn_bind_ref_member_to_temporary)
-      << Member << Init->getSourceRange();
-  } else if (const DeclRefExpr *DRE
-               = dyn_cast<DeclRefExpr>(Init->IgnoreParens())) {
+  if (const DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(Init->IgnoreParens())) {
     // We only warn when referring to a non-reference parameter declaration.
     const ParmVarDecl *Parameter = dyn_cast<ParmVarDecl>(DRE->getDecl());
     if (!Parameter || Parameter->getType()->isReferenceType())
@@ -2558,11 +2546,6 @@ Sema::BuildMemberInitializer(ValueDecl *Member, Expr *Init,
     if (isa<InitListExpr>(Init)) {
       InitList = true;
       Args = Init;
-
-      if (isStdInitializerList(Member->getType(), 0)) {
-        Diag(IdLoc, diag::warn_dangling_std_initializer_list)
-            << /*at end of ctor*/1 << InitRange;
-      }
     }
 
     // Initialize the member.
