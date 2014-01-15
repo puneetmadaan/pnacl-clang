@@ -1519,6 +1519,20 @@ TEST_F(FormatTest, FormatsEnum) {
   verifyFormat("enum X f() {\n  a();\n  return 42;\n}");
 }
 
+TEST_F(FormatTest, FormatsEnumsWithErrors) {
+  verifyFormat("enum Type {\n"
+               "  One = 0;\n" // These semicolons should be commas.
+               "  Two = 1;\n"
+               "};");
+  verifyFormat("namespace n {\n"
+               "enum Type {\n"
+               "  One,\n"
+               "  Two,\n" // missing };
+               "  int i;\n"
+               "}\n"
+               "void g() {}");
+}
+
 TEST_F(FormatTest, FormatsEnumStruct) {
   verifyFormat("enum struct {\n"
                "  Zero,\n"
@@ -6226,6 +6240,15 @@ TEST_F(FormatTest, FormatsWithWebKitStyle) {
             "    i++;\n"
             "}",
             format("if (aaaaaaaaaaaaaaa || bbbbbbbbbbbbbbb) { i++; }", Style));
+}
+
+TEST_F(FormatTest, FormatsProtocolBufferDefinitions) {
+  // It seems that clang-format can format protocol buffer definitions
+  // (see https://code.google.com/p/protobuf/).
+  verifyFormat("message SomeMessage {\n"
+               "  required int32 field1 = 1;\n"
+               "  optional string field2 = 2 [default = \"2\"]\n"
+               "}");
 }
 
 } // end namespace tooling
