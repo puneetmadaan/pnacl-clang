@@ -2725,9 +2725,8 @@ static void handleWeakImportAttr(Sema &S, Decl *D, const AttributeList &Attr) {
   bool isDef = false;
   if (!D->canBeWeakImported(isDef)) {
     if (isDef)
-      S.Diag(Attr.getLoc(),
-             diag::warn_attribute_weak_import_invalid_on_definition)
-        << "weak_import" << 2 /*variable and function*/;
+      S.Diag(Attr.getLoc(), diag::warn_attribute_invalid_on_definition)
+        << "weak_import";
     else if (isa<ObjCPropertyDecl>(D) || isa<ObjCMethodDecl>(D) ||
              (S.Context.getTargetInfo().getTriple().isOSDarwin() &&
               (isa<ObjCInterfaceDecl>(D) || isa<EnumDecl>(D)))) {
@@ -4718,6 +4717,16 @@ static void handleForceInlineAttr(Sema &S, Decl *D, const AttributeList &Attr) {
                              Attr.getAttributeSpellingListIndex()));
 }
 
+static void handleSelectAnyAttr(Sema &S, Decl *D, const AttributeList &Attr) {
+  if (!checkMicrosoftExt(S, Attr))
+    return;
+  // Check linkage after possibly merging declaratinos.  See
+  // checkAttributesAfterMerging().
+  D->addAttr(::new (S.Context)
+             SelectAnyAttr(Attr.getRange(), S.Context,
+                           Attr.getAttributeSpellingListIndex()));
+}
+
 //===----------------------------------------------------------------------===//
 // Top Level Sema Entry Points
 //===----------------------------------------------------------------------===//
@@ -4943,6 +4952,9 @@ static void ProcessInheritableDeclAttr(Sema &S, Scope *scope, Decl *D,
     break;
   case AttributeList::AT_ForceInline:
     handleForceInlineAttr(S, D, Attr);
+    break;
+  case AttributeList::AT_SelectAny:
+    handleSelectAnyAttr(S, D, Attr);
     break;
 
   // Thread safety attributes:
