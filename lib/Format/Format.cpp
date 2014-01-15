@@ -905,16 +905,42 @@ private:
       // Only break up default narrow strings.
       if (!Current.TokenText.startswith("\""))
         return 0;
+      // Don't break string literals with escaped newlines. As clang-format must
+      // not change the string's content, it is unlikely that we'll end up with
+      // a better format.
+      if (Current.TokenText.find("\\\n") != StringRef::npos)
+        return 0;
+      // Exempts unterminated string literals from line breaking. The user will
+      // likely want to terminate the string before any line breaking is done.
+      if (Current.IsUnterminatedLiteral)
+         return 0;
 
       Token.reset(new BreakableStringLiteral(Current, StartColumn,
                                              Line.InPPDirective, Encoding));
-    } else if (Current.Type == TT_BlockComment) {
+    } else if (Current.Type == TT_BlockComment && Current.isTrailingComment()) {
       Token.reset(new BreakableBlockComment(
           Style, Current, StartColumn, OriginalStartColumn, !Current.Previous,
           Line.InPPDirective, Encoding));
     } else if (Current.Type == TT_LineComment &&
                (Current.Previous == NULL ||
                 Current.Previous->Type != TT_ImplicitStringLiteral)) {
+      // Don't break line comments with escaped newlines. These look like
+      // separate line comments, but in fact contain a single line comment with
+      // multiple lines including leading whitespace and the '//' markers.
+      //
+      // FIXME: If we want to handle them correctly, we'll need to adjust
+      // leading whitespace in consecutive lines when changing indentation of
+      // the first line similar to what we do with block comments.
+      StringRef::size_type EscapedNewlinePos = Current.TokenText.find("\\\n");
+      if (EscapedNewlinePos != StringRef::npos) {
+        State.Column =
+            StartColumn +
+            encoding::getCodePointCount(
+                Current.TokenText.substr(0, EscapedNewlinePos), Encoding) +
+            1;
+        return 0;
+      }
+
       Token.reset(new BreakableLineComment(Current, StartColumn,
                                            Line.InPPDirective, Encoding));
     } else {
@@ -1151,6 +1177,14 @@ private:
         !Current.isTrailingComment() &&
         !Current.isOneOf(tok::r_paren, tok::r_brace))
       return true;
+    if (Style.AlwaysBreakBeforeMultilineStrings &&
+        State.Column > State.Stack.back().Indent &&
+        Current.is(tok::string_literal) && Previous.isNot(tok::lessless) &&
+        Previous.Type != TT_InlineASMColon &&
+        ((Current.getNextNonComment() &&
+          Current.getNextNonComment()->is(tok::string_literal)) ||
+         (Current.TokenText.find("\\\n") != StringRef::npos)))
+      return true;
 
     // If we need to break somewhere inside the LHS of a binary expression, we
     // should also break after the operator. Otherwise, the formatting would
@@ -1259,8 +1293,7 @@ private:
     }
 
     FormatTok = new (Allocator.Allocate()) FormatToken;
-    Lex.LexFromRawLexer(FormatTok->Tok);
-    StringRef Text = rawTokenText(FormatTok->Tok);
+    readRawToken(*FormatTok);
     SourceLocation WhitespaceStart =
         FormatTok->Tok.getLocation().getLocWithOffset(-TrailingWhitespace);
     if (SourceMgr.getFileOffset(WhitespaceStart) == 0)
@@ -1269,16 +1302,16 @@ private:
     // Consume and record whitespace until we find a significant token.
     unsigned WhitespaceLength = TrailingWhitespace;
     while (FormatTok->Tok.is(tok::unknown)) {
-      unsigned Newlines = Text.count('\n');
+      unsigned Newlines = FormatTok->TokenText.count('\n');
       if (Newlines > 0)
-        FormatTok->LastNewlineOffset = WhitespaceLength + Text.rfind('\n') + 1;
+        FormatTok->LastNewlineOffset =
+            WhitespaceLength + FormatTok->TokenText.rfind('\n') + 1;
       FormatTok->NewlinesBefore += Newlines;
-      unsigned EscapedNewlines = Text.count("\\\n");
+      unsigned EscapedNewlines = FormatTok->TokenText.count("\\\n");
       FormatTok->HasUnescapedNewline |= EscapedNewlines != Newlines;
       WhitespaceLength += FormatTok->Tok.getLength();
 
-      Lex.LexFromRawLexer(FormatTok->Tok);
-      Text = rawTokenText(FormatTok->Tok);
+      readRawToken(*FormatTok);
     }
 
     // In case the token starts with escaped newlines, we want to
@@ -1287,30 +1320,31 @@ private:
     // FIXME: What do we want to do with other escaped spaces, and escaped
     // spaces or newlines in the middle of tokens?
     // FIXME: Add a more explicit test.
-    while (Text.size() > 1 && Text[0] == '\\' && Text[1] == '\n') {
+    while (FormatTok->TokenText.size() > 1 && FormatTok->TokenText[0] == '\\' &&
+           FormatTok->TokenText[1] == '\n') {
       // FIXME: ++FormatTok->NewlinesBefore is missing...
       WhitespaceLength += 2;
-      Text = Text.substr(2);
+      FormatTok->TokenText = FormatTok->TokenText.substr(2);
     }
 
     TrailingWhitespace = 0;
     if (FormatTok->Tok.is(tok::comment)) {
-      StringRef UntrimmedText = Text;
-      Text = Text.rtrim();
-      TrailingWhitespace = UntrimmedText.size() - Text.size();
+      StringRef UntrimmedText = FormatTok->TokenText;
+      FormatTok->TokenText = FormatTok->TokenText.rtrim();
+      TrailingWhitespace = UntrimmedText.size() - FormatTok->TokenText.size();
     } else if (FormatTok->Tok.is(tok::raw_identifier)) {
-      IdentifierInfo &Info = IdentTable.get(Text);
+      IdentifierInfo &Info = IdentTable.get(FormatTok->TokenText);
       FormatTok->Tok.setIdentifierInfo(&Info);
       FormatTok->Tok.setKind(Info.getTokenID());
     } else if (FormatTok->Tok.is(tok::greatergreater)) {
       FormatTok->Tok.setKind(tok::greater);
-      Text = Text.substr(0, 1);
+      FormatTok->TokenText = FormatTok->TokenText.substr(0, 1);
       GreaterStashed = true;
     }
 
     // Now FormatTok is the next non-whitespace token.
-    FormatTok->TokenText = Text;
-    FormatTok->CodePointCount = encoding::getCodePointCount(Text, Encoding);
+    FormatTok->CodePointCount =
+        encoding::getCodePointCount(FormatTok->TokenText, Encoding);
 
     FormatTok->WhitespaceRange = SourceRange(
         WhitespaceStart, WhitespaceStart.getLocWithOffset(WhitespaceLength));
@@ -1327,10 +1361,18 @@ private:
   llvm::SpecificBumpPtrAllocator<FormatToken> Allocator;
   SmallVector<FormatToken *, 16> Tokens;
 
-  /// Returns the text of \c FormatTok.
-  StringRef rawTokenText(Token &Tok) {
-    return StringRef(SourceMgr.getCharacterData(Tok.getLocation()),
-                     Tok.getLength());
+  void readRawToken(FormatToken &Tok) {
+    Lex.LexFromRawLexer(Tok.Tok);
+    Tok.TokenText = StringRef(SourceMgr.getCharacterData(Tok.Tok.getLocation()),
+                              Tok.Tok.getLength());
+
+    // For formatting, treat unterminated string literals like normal string
+    // literals.
+    if (Tok.is(tok::unknown) && !Tok.TokenText.empty() &&
+        Tok.TokenText[0] == '"') {
+      Tok.Tok.setKind(tok::string_literal);
+      Tok.IsUnterminatedLiteral = true;
+    }
   }
 };
 

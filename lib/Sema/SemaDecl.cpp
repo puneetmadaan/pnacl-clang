@@ -6330,12 +6330,11 @@ Sema::ActOnFunctionDeclarator(Scope *S, Declarator &D, DeclContext *DC,
     }
 
     if (isFriend) {
-      // For now, claim that the objects have no previous declaration.
       if (FunctionTemplate) {
-        FunctionTemplate->setObjectOfFriendDecl(false);
+        FunctionTemplate->setObjectOfFriendDecl();
         FunctionTemplate->setAccess(AS_public);
       }
-      NewFD->setObjectOfFriendDecl(false);
+      NewFD->setObjectOfFriendDecl();
       NewFD->setAccess(AS_public);
     }
 
@@ -6654,8 +6653,6 @@ Sema::ActOnFunctionDeclarator(Scope *S, Declarator &D, DeclContext *DC,
 
       NewFD->setAccess(Access);
       if (FunctionTemplate) FunctionTemplate->setAccess(Access);
-
-      PrincipalDecl->setObjectOfFriendDecl(true);
     }
 
     if (NewFD->isOverloadedOperator() && !DC->isRecord() &&
@@ -8305,10 +8302,16 @@ void Sema::CheckCompleteVariableDeclaration(VarDecl *var) {
     if (IsGlobal && !var->isConstexpr() &&
         getDiagnostics().getDiagnosticLevel(diag::warn_global_constructor,
                                             var->getLocation())
-          != DiagnosticsEngine::Ignored &&
-        !Init->isConstantInitializer(Context, baseType->isReferenceType()))
-      Diag(var->getLocation(), diag::warn_global_constructor)
-        << Init->getSourceRange();
+          != DiagnosticsEngine::Ignored) {
+      // Warn about globals which don't have a constant initializer.  Don't
+      // warn about globals with a non-trivial destructor because we already
+      // warned about them.
+      CXXRecordDecl *RD = baseType->getAsCXXRecordDecl();
+      if (!(RD && !RD->hasTrivialDestructor()) &&
+          !Init->isConstantInitializer(Context, baseType->isReferenceType()))
+        Diag(var->getLocation(), diag::warn_global_constructor)
+          << Init->getSourceRange();
+    }
 
     if (var->isConstexpr()) {
       SmallVector<PartialDiagnosticAt, 8> Notes;
@@ -10386,9 +10389,8 @@ CreateNewDecl:
   // declaration so we always pass true to setObjectOfFriendDecl to make
   // the tag name visible.
   if (TUK == TUK_Friend)
-    New->setObjectOfFriendDecl(/* PreviouslyDeclared = */ !Previous.empty() ||
-                               (!FriendSawTagOutsideEnclosingNamespace &&
-                                getLangOpts().MicrosoftExt));
+    New->setObjectOfFriendDecl(!FriendSawTagOutsideEnclosingNamespace &&
+                               getLangOpts().MicrosoftExt);
 
   // Set the access specifier.
   if (!Invalid && SearchDC->isRecord())
@@ -10569,8 +10571,8 @@ void Sema::ActOnTagDefinitionError(Scope *S, Decl *TagD) {
 // Note that FieldName may be null for anonymous bitfields.
 ExprResult Sema::VerifyBitField(SourceLocation FieldLoc,
                                 IdentifierInfo *FieldName,
-                                QualType FieldTy, Expr *BitWidth,
-                                bool *ZeroWidth) {
+                                QualType FieldTy, bool IsMsStruct,
+                                Expr *BitWidth, bool *ZeroWidth) {
   // Default to true; that shouldn't confuse checks for emptiness
   if (ZeroWidth)
     *ZeroWidth = true;
@@ -10619,7 +10621,7 @@ ExprResult Sema::VerifyBitField(SourceLocation FieldLoc,
   if (!FieldTy->isDependentType()) {
     uint64_t TypeSize = Context.getTypeSize(FieldTy);
     if (Value.getZExtValue() > TypeSize) {
-      if (!getLangOpts().CPlusPlus) {
+      if (!getLangOpts().CPlusPlus || IsMsStruct) {
         if (FieldName) 
           return Diag(FieldLoc, diag::err_bitfield_width_exceeds_type_size)
             << FieldName << (unsigned)Value.getZExtValue() 
@@ -10837,7 +10839,8 @@ FieldDecl *Sema::CheckFieldDecl(DeclarationName Name, QualType T,
   bool ZeroWidth = false;
   // If this is declared as a bit-field, check the bit-field.
   if (!InvalidDecl && BitWidth) {
-    BitWidth = VerifyBitField(Loc, II, T, BitWidth, &ZeroWidth).take();
+    BitWidth = VerifyBitField(Loc, II, T, Record->isMsStruct(Context), BitWidth,
+                              &ZeroWidth).take();
     if (!BitWidth) {
       InvalidDecl = true;
       BitWidth = 0;
@@ -11018,7 +11021,8 @@ Decl *Sema::ActOnIvar(Scope *S,
 
   if (BitWidth) {
     // 6.7.2.1p3, 6.7.2.1p4
-    BitWidth = VerifyBitField(Loc, II, T, BitWidth).take();
+    BitWidth =
+        VerifyBitField(Loc, II, T, /*IsMsStruct=*/false, BitWidth).take();
     if (!BitWidth)
       D.setInvalidType();
   } else {

@@ -866,6 +866,13 @@ TEST_F(FormatTest, CorrectlyHandlesLengthOfBlockComments) {
              getLLVMStyleWithColumns(40)));
 }
 
+TEST_F(FormatTest, DontBreakNonTrailingBlockComments) {
+  EXPECT_EQ("void\n"
+            "ffffffffff(int aaaaa /* test */);",
+            format("void ffffffffff(int aaaaa /* test */);",
+                   getLLVMStyleWithColumns(35)));
+}
+
 TEST_F(FormatTest, SplitsLongCxxComments) {
   EXPECT_EQ("// A comment that\n"
             "// doesn't fit on\n"
@@ -919,6 +926,32 @@ TEST_F(FormatTest, SplitsLongCxxComments) {
   EXPECT_EQ("//\t aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             format("//\t aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                    getLLVMStyleWithColumns(20)));
+}
+
+TEST_F(FormatTest, DontSplitLineCommentsWithEscapedNewlines) {
+  EXPECT_EQ("// aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\\n"
+            "// aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\\n"
+            "// aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            format("// aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\\n"
+                   "// aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\\n"
+                   "// aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
+  EXPECT_EQ("int a; // AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\\\n"
+            "       // AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\\\n"
+            "       // AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            format("int a; // AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\\\n"
+                   "       // AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\\\n"
+                   "       // AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                   getLLVMStyleWithColumns(50)));
+  // FIXME: One day we might want to implement adjustment of leading whitespace
+  // of the consecutive lines in this kind of comment:
+  EXPECT_EQ("int\n"
+            "a; // AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\\\n"
+            "       // AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\\\n"
+            "       // AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            format("int a; // AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\\\n"
+                   "       // AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\\\n"
+                   "       // AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                   getLLVMStyleWithColumns(49)));
 }
 
 TEST_F(FormatTest, PriorityOfCommentBreaking) {
@@ -2948,27 +2981,49 @@ TEST_F(FormatTest, AlwaysBreakBeforeMultilineStrings) {
   NoBreak.AlwaysBreakBeforeMultilineStrings = false;
   FormatStyle Break = getLLVMStyle();
   Break.AlwaysBreakBeforeMultilineStrings = true;
-  EXPECT_EQ("aaaa = \"bbbb\"\n"
-            "       \"cccc\";",
-            format("aaaa=\"bbbb\" \"cccc\";", NoBreak));
-  EXPECT_EQ("aaaa =\n"
-            "    \"bbbb\"\n"
-            "    \"cccc\";",
-            format("aaaa=\"bbbb\" \"cccc\";", Break));
-  EXPECT_EQ("aaaa(\"bbbb\"\n"
-            "     \"cccc\");",
-            format("aaaa(\"bbbb\" \"cccc\");", NoBreak));
-  EXPECT_EQ("aaaa(\n"
-            "    \"bbbb\"\n"
-            "    \"cccc\");",
-            format("aaaa(\"bbbb\" \"cccc\");", Break));
-  EXPECT_EQ("aaaa(qqq, \"bbbb\"\n"
-            "          \"cccc\");",
-            format("aaaa(qqq, \"bbbb\" \"cccc\");", NoBreak));
-  EXPECT_EQ("aaaa(qqq,\n"
-            "     \"bbbb\"\n"
-            "     \"cccc\");",
-            format("aaaa(qqq, \"bbbb\" \"cccc\");", Break));
+  verifyFormat("aaaa = \"bbbb\"\n"
+               "       \"cccc\";",
+               NoBreak);
+  verifyFormat("aaaa =\n"
+               "    \"bbbb\"\n"
+               "    \"cccc\";",
+               Break);
+  verifyFormat("aaaa(\"bbbb\"\n"
+               "     \"cccc\");",
+               NoBreak);
+  verifyFormat("aaaa(\n"
+               "    \"bbbb\"\n"
+               "    \"cccc\");",
+               Break);
+  verifyFormat("aaaa(qqq, \"bbbb\"\n"
+               "          \"cccc\");",
+               NoBreak);
+  verifyFormat("aaaa(qqq,\n"
+               "     \"bbbb\"\n"
+               "     \"cccc\");",
+               Break);
+
+  // Don't break if there is no column gain.
+  verifyFormat("f(\"aaaa\"\n"
+               "  \"bbbb\");",
+               Break);
+
+  // Treat literals with escaped newlines like multi-line string literals.
+  EXPECT_EQ("x = \"a\\\n"
+            "b\\\n"
+            "c\";",
+            format("x = \"a\\\n"
+                   "b\\\n"
+                   "c\";",
+                   NoBreak));
+  EXPECT_EQ("x =\n"
+            "    \"a\\\n"
+            "b\\\n"
+            "c\";",
+            format("x = \"a\\\n"
+                   "b\\\n"
+                   "c\";",
+                   Break));
 }
 
 TEST_F(FormatTest, AlignsPipes) {
@@ -3489,6 +3544,10 @@ TEST_F(FormatTest, UnderstandsUsesOfStarAndAmp) {
   FormatStyle PointerLeft = getLLVMStyle();
   PointerLeft.PointerBindsToType = true;
   verifyFormat("delete *x;", PointerLeft);
+}
+
+TEST_F(FormatTest, UnderstandsAttributes) {
+  verifyFormat("SomeType s __attribute__((unused)) (InitValue);");
 }
 
 TEST_F(FormatTest, UnderstandsEllipsis) {
@@ -4992,6 +5051,16 @@ TEST_F(FormatTest, BreakStringLiterals) {
       format("#define A \"some text other\";", AlignLeft));
 }
 
+TEST_F(FormatTest, DontSplitStringLiteralsWithEscapedNewlines) {
+  EXPECT_EQ("aaaaaaaaaaa =\n"
+            "    \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\\n"
+            "  aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\\n"
+            "  aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\";",
+            format("aaaaaaaaaaa = \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\\n"
+                   "  aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\\n"
+                   "  aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\";"));
+}
+
 TEST_F(FormatTest, SkipsUnknownStringLiterals) {
   EXPECT_EQ(
       "u8\"unsupported literal\";",
@@ -5004,6 +5073,11 @@ TEST_F(FormatTest, SkipsUnknownStringLiterals) {
             format("L\"unsupported literal\";", getGoogleStyleWithColumns(15)));
   EXPECT_EQ("R\"x(raw literal)x\";",
             format("R\"x(raw literal)x\";", getGoogleStyleWithColumns(15)));
+  verifyFormat("string a = \"unterminated;");
+  EXPECT_EQ("function(\"unterminated,\n"
+            "         OtherParameter);",
+            format("function(  \"unterminated,\n"
+                   "    OtherParameter);"));
 }
 
 TEST_F(FormatTest, DoesNotTryToParseUDLiteralsInPreCpp11Code) {
