@@ -5369,6 +5369,22 @@ public:
 } // end anonymous namespace
 
 
+//===----------------------------------------------------------------------===//
+// Xcore ABI Implementation
+//===----------------------------------------------------------------------===//
+namespace {
+class XcoreTargetCodeGenInfo : public TargetCodeGenInfo {
+public:
+  XcoreTargetCodeGenInfo(CodeGenTypes &CGT)
+    :TargetCodeGenInfo(new DefaultABIInfo(CGT)) {}
+};
+} // end anonymous namespace
+
+
+//===----------------------------------------------------------------------===//
+// Driver code
+//===----------------------------------------------------------------------===//
+
 const TargetCodeGenInfo &CodeGenModule::getTargetCodeGenInfo() {
   if (TheTargetCodeGenInfo)
     return *TheTargetCodeGenInfo;
@@ -5477,5 +5493,8 @@ const TargetCodeGenInfo &CodeGenModule::getTargetCodeGenInfo() {
     return *(TheTargetCodeGenInfo = new HexagonTargetCodeGenInfo(Types));
   case llvm::Triple::sparcv9:
     return *(TheTargetCodeGenInfo = new SparcV9TargetCodeGenInfo(Types));
+  case llvm::Triple::xcore:
+    return *(TheTargetCodeGenInfo = new XcoreTargetCodeGenInfo(Types));
+
   }
 }
