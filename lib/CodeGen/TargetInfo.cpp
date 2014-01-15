@@ -1134,6 +1134,9 @@ class X86_64ABIInfo : public ABIInfo {
   /// containing object.  Some parameters are classified different
   /// depending on whether they straddle an eightbyte boundary.
   ///
+  /// \param isNamedArg - Whether the argument in question is a "named"
+  /// argument, as used in AMD64-ABI 3.5.7.
+  ///
   /// If a word is unused its result will be NoClass; if a type should
   /// be passed in Memory then at least the classification of \arg Lo
   /// will be Memory.
@@ -1142,7 +1145,8 @@ class X86_64ABIInfo : public ABIInfo {
   ///
   /// If the \arg Lo class is ComplexX87, then the \arg Hi class will
   /// also be ComplexX87.
-  void classify(QualType T, uint64_t OffsetBase, Class &Lo, Class &Hi) const;
+  void classify(QualType T, uint64_t OffsetBase, Class &Lo, Class &Hi,
+                bool isNamedArg) const;
 
   llvm::Type *GetByteVectorType(QualType Ty) const;
   llvm::Type *GetSSETypeAtOffset(llvm::Type *IRType,
@@ -1168,7 +1172,8 @@ class X86_64ABIInfo : public ABIInfo {
   ABIArgInfo classifyArgumentType(QualType Ty,
                                   unsigned freeIntRegs,
                                   unsigned &neededInt,
-                                  unsigned &neededSSE) const;
+                                  unsigned &neededSSE,
+                                  bool isNamedArg) const;
 
   bool IsIllegalVectorType(QualType Ty) const;
 
@@ -1195,7 +1200,8 @@ public:
   bool isPassedUsingAVXType(QualType type) const {
     unsigned neededInt, neededSSE;
     // The freeIntRegs argument doesn't matter here.
-    ABIArgInfo info = classifyArgumentType(type, 0, neededInt, neededSSE);
+    ABIArgInfo info = classifyArgumentType(type, 0, neededInt, neededSSE,
+                                           /*isNamedArg*/true);
     if (info.isDirect()) {
       llvm::Type *ty = info.getCoerceToType();
       if (llvm::VectorType *vectorTy = dyn_cast_or_null<llvm::VectorType>(ty))
@@ -1417,7 +1423,7 @@ X86_64ABIInfo::Class X86_64ABIInfo::merge(Class Accum, Class Field) {
 }
 
 void X86_64ABIInfo::classify(QualType Ty, uint64_t OffsetBase,
-                             Class &Lo, Class &Hi) const {
+                             Class &Lo, Class &Hi, bool isNamedArg) const {
   // FIXME: This code can be simplified by introducing a simple value class for
   // Class pairs with appropriate constructor methods for the various
   // situations.
@@ -1456,7 +1462,7 @@ void X86_64ABIInfo::classify(QualType Ty, uint64_t OffsetBase,
 
   if (const EnumType *ET = Ty->getAs<EnumType>()) {
     // Classify the underlying integer type.
-    classify(ET->getDecl()->getIntegerType(), OffsetBase, Lo, Hi);
+    classify(ET->getDecl()->getIntegerType(), OffsetBase, Lo, Hi, isNamedArg);
     return;
   }
 
@@ -1504,7 +1510,7 @@ void X86_64ABIInfo::classify(QualType Ty, uint64_t OffsetBase,
       // split.
       if (OffsetBase && OffsetBase != 64)
         Hi = Lo;
-    } else if (Size == 128 || (HasAVX && Size == 256)) {
+    } else if (Size == 128 || (HasAVX && isNamedArg && Size == 256)) {
       // Arguments of 256-bits are split into four eightbyte chunks. The
       // least significant one belongs to class SSE and all the others to class
       // SSEUP. The original Lo and Hi design considers that types can't be
@@ -1512,6 +1518,10 @@ void X86_64ABIInfo::classify(QualType Ty, uint64_t OffsetBase,
       // This design isn't correct for 256-bits, but since there're no cases
       // where the upper parts would need to be inspected, avoid adding
       // complexity and just consider Hi to match the 64-256 part.
+      //
+      // Note that per 3.5.7 of AMD64-ABI, 256-bit args are only passed in
+      // registers if they are "named", i.e. not part of the "..." of a
+      // variadic function.
       Lo = SSE;
       Hi = SSEUp;
     }
@@ -1577,7 +1587,7 @@ void X86_64ABIInfo::classify(QualType Ty, uint64_t OffsetBase,
 
     for (uint64_t i=0, Offset=OffsetBase; i<ArraySize; ++i, Offset += EltSize) {
       Class FieldLo, FieldHi;
-      classify(AT->getElementType(), Offset, FieldLo, FieldHi);
+      classify(AT->getElementType(), Offset, FieldLo, FieldHi, isNamedArg);
       Lo = merge(Lo, FieldLo);
       Hi = merge(Hi, FieldHi);
       if (Lo == Memory || Hi == Memory)
@@ -1631,7 +1641,7 @@ void X86_64ABIInfo::classify(QualType Ty, uint64_t OffsetBase,
         Class FieldLo, FieldHi;
         uint64_t Offset =
           OffsetBase + getContext().toBits(Layout.getBaseClassOffset(Base));
-        classify(i->getType(), Offset, FieldLo, FieldHi);
+        classify(i->getType(), Offset, FieldLo, FieldHi, isNamedArg);
         Lo = merge(Lo, FieldLo);
         Hi = merge(Hi, FieldHi);
         if (Lo == Memory || Hi == Memory)
@@ -1694,7 +1704,7 @@ void X86_64ABIInfo::classify(QualType Ty, uint64_t OffsetBase,
           FieldHi = EB_Hi ? Integer : NoClass;
         }
       } else
-        classify(i->getType(), Offset, FieldLo, FieldHi);
+        classify(i->getType(), Offset, FieldLo, FieldHi, isNamedArg);
       Lo = merge(Lo, FieldLo);
       Hi = merge(Hi, FieldHi);
       if (Lo == Memory || Hi == Memory)
@@ -2082,7 +2092,7 @@ classifyReturnType(QualType RetTy) const {
   // AMD64-ABI 3.2.3p4: Rule 1. Classify the return type with the
   // classification algorithm.
   X86_64ABIInfo::Class Lo, Hi;
-  classify(RetTy, 0, Lo, Hi);
+  classify(RetTy, 0, Lo, Hi, /*isNamedArg*/ true);
 
   // Check some invariants.
   assert((Hi != Memory || Lo == Memory) && "Invalid memory classification.");
@@ -2207,11 +2217,12 @@ classifyReturnType(QualType RetTy) const {
 }
 
 ABIArgInfo X86_64ABIInfo::classifyArgumentType(
-  QualType Ty, unsigned freeIntRegs, unsigned &neededInt, unsigned &neededSSE)
+  QualType Ty, unsigned freeIntRegs, unsigned &neededInt, unsigned &neededSSE,
+  bool isNamedArg)
   const
 {
   X86_64ABIInfo::Class Lo, Hi;
-  classify(Ty, 0, Lo, Hi);
+  classify(Ty, 0, Lo, Hi, isNamedArg);
 
   // Check some invariants.
   // FIXME: Enforce these by construction.
@@ -2344,13 +2355,22 @@ void X86_64ABIInfo::computeInfo(CGFunctionInfo &FI) const {
   if (FI.getReturnInfo().isIndirect())
     --freeIntRegs;
 
+  bool isVariadic = FI.isVariadic();
+  unsigned numRequiredArgs = 0;
+  if (isVariadic)
+    numRequiredArgs = FI.getRequiredArgs().getNumRequiredArgs();
+
   // AMD64-ABI 3.2.3p3: Once arguments are classified, the registers
   // get assigned (in left-to-right order) for passing as follows...
   for (CGFunctionInfo::arg_iterator it = FI.arg_begin(), ie = FI.arg_end();
        it != ie; ++it) {
+    bool isNamedArg = true;
+    if (isVariadic)
+      isNamedArg = (it - FI.arg_begin()) < numRequiredArgs;
+
     unsigned neededInt, neededSSE;
     it->info = classifyArgumentType(it->type, freeIntRegs, neededInt,
-                                    neededSSE);
+                                    neededSSE, isNamedArg);
 
     // AMD64-ABI 3.2.3p3: If there are no registers available for any
     // eightbyte of an argument, the whole argument is passed on the
@@ -2426,7 +2446,8 @@ llvm::Value *X86_64ABIInfo::EmitVAArg(llvm::Value *VAListAddr, QualType Ty,
   unsigned neededInt, neededSSE;
 
   Ty = CGF.getContext().getCanonicalType(Ty);
-  ABIArgInfo AI = classifyArgumentType(Ty, 0, neededInt, neededSSE);
+  ABIArgInfo AI = classifyArgumentType(Ty, 0, neededInt, neededSSE, 
+                                       /*isNamedArg*/false);
 
   // AMD64-ABI 3.5.7p5: Step 1. Determine whether type may be passed
   // in the registers. If not go to step 7.
