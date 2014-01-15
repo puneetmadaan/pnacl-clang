@@ -218,7 +218,7 @@ TEST_F(FormatTest, ReformatsMovedLines) {
 // Tests for control statements.
 //===----------------------------------------------------------------------===//
 
-TEST_F(FormatTest, FormatIfWithoutCompountStatement) {
+TEST_F(FormatTest, FormatIfWithoutCompoundStatement) {
   verifyFormat("if (true)\n  f();\ng();");
   verifyFormat("if (a)\n  if (b)\n    if (c)\n      g();\nh();");
   verifyFormat("if (a)\n  if (b) {\n    f();\n  }\ng();");
@@ -244,6 +244,10 @@ TEST_F(FormatTest, FormatIfWithoutCompountStatement) {
                "  f();\n"
                "}",
                AllowsMergedIf);
+
+  EXPECT_EQ("if (a) return;", format("if(a)\nreturn;", 7, 1, AllowsMergedIf));
+  EXPECT_EQ("if (a) return;  // comment",
+            format("if(a)\nreturn; // comment", 20, 1, AllowsMergedIf));
 
   AllowsMergedIf.ColumnLimit = 14;
   verifyFormat("if (a) return;", AllowsMergedIf);
@@ -1761,6 +1765,33 @@ TEST_F(FormatTest, MemoizationTests) {
       "            aaaaa(aaaaa(aaaaa(aaaaa(aaaaa(aaaaa(aaaaa(aaaaa(aaaaa(\n"
       "                aaaaa())))))))))))))))))))))))))))))))))))))));",
       getLLVMStyleWithColumns(65));
+  verifyFormat(
+      "aaaaa(\n"
+      "    aaaaa,\n"
+      "    aaaaa(\n"
+      "        aaaaa,\n"
+      "        aaaaa(\n"
+      "            aaaaa,\n"
+      "            aaaaa(\n"
+      "                aaaaa,\n"
+      "                aaaaa(\n"
+      "                    aaaaa,\n"
+      "                    aaaaa(\n"
+      "                        aaaaa,\n"
+      "                        aaaaa(\n"
+      "                            aaaaa,\n"
+      "                            aaaaa(\n"
+      "                                aaaaa,\n"
+      "                                aaaaa(\n"
+      "                                    aaaaa,\n"
+      "                                    aaaaa(\n"
+      "                                        aaaaa,\n"
+      "                                        aaaaa(\n"
+      "                                            aaaaa,\n"
+      "                                            aaaaa(\n"
+      "                                                aaaaa,\n"
+      "                                                aaaaa))))))))))));",
+      getLLVMStyleWithColumns(65));
 
   // This test takes VERY long when memoization is broken.
   FormatStyle OnePerLine = getLLVMStyle();
@@ -2204,6 +2235,14 @@ TEST_F(FormatTest, AlignsStringLiterals) {
       "#define LL_FORMAT \"ll\"\n"
       "printf(\"aaaaa: %d, bbbbbb: %\" LL_FORMAT \"d, cccccccc: %\" LL_FORMAT\n"
       "       \"d, ddddddddd: %\" LL_FORMAT \"d\");");
+
+  verifyFormat("#define A(X)          \\\n"
+               "  \"aaaaa\" #X \"bbbbbb\" \\\n"
+               "  \"ccccc\"",
+               getLLVMStyleWithColumns(23));
+  verifyFormat("#define A \"def\"\n"
+               "f(\"abc\" A \"ghi\"\n"
+               "  \"jkl\");");
 }
 
 TEST_F(FormatTest, AlignsPipes) {
@@ -2638,10 +2677,16 @@ TEST_F(FormatTest, UnderstandsUsesOfStarAndAmp) {
   verifyFormat("for (int i = a * a; i < 10; ++i) {\n}");
   verifyFormat("for (int i = 0; i < a * a; ++i) {\n}");
 
+  verifyFormat("#define MACRO     \\\n"
+               "  int *i = a * b; \\\n"
+               "  void f(a *b);",
+               getLLVMStyleWithColumns(19));
+
   verifyIndependentOfContext("A = new SomeType *[Length];");
   verifyIndependentOfContext("A = new SomeType *[Length]();");
   verifyGoogleFormat("A = new SomeType* [Length]();");
   verifyGoogleFormat("A = new SomeType* [Length];");
+
   FormatStyle PointerLeft = getLLVMStyle();
   PointerLeft.PointerBindsToType = true;
   verifyFormat("delete *x;", PointerLeft);
@@ -2749,6 +2794,10 @@ TEST_F(FormatTest, FormatsFunctionTypes) {
 
   verifyGoogleFormat("A<void*(int*, SomeType*)>;");
   verifyGoogleFormat("void* (*a)(int);");
+
+  // Other constructs can look like function types:
+  verifyFormat("A<sizeof(*x)> a;");
+  verifyFormat("A<alignof(*x)> a;");
 }
 
 TEST_F(FormatTest, BreaksLongDeclarations) {
@@ -3765,7 +3814,7 @@ TEST_F(FormatTest, ReformatRegionAdjustsIndent) {
             "a;\n"
             "}\n"
             "{\n"
-            "  b;\n"
+            "  b; //\n"
             "}\n"
             "}",
             format("{\n"
@@ -3773,15 +3822,15 @@ TEST_F(FormatTest, ReformatRegionAdjustsIndent) {
                    "a;\n"
                    "}\n"
                    "{\n"
-                   "           b;\n"
+                   "           b; //\n"
                    "}\n"
                    "}",
                    22, 2, getLLVMStyle()));
   EXPECT_EQ("  {\n"
-            "    a;\n"
+            "    a; //\n"
             "  }",
             format("  {\n"
-                   "a;\n"
+                   "a; //\n"
                    "  }",
                    4, 2, getLLVMStyle()));
   EXPECT_EQ("void f() {}\n"
@@ -3899,6 +3948,48 @@ TEST_F(FormatTest, BreakStringLiterals) {
       format("#define A \"some text other\";", AlignLeft));
 }
 
+TEST_F(FormatTest, BreakStringLiteralsBeforeUnbreakableTokenSequence) {
+  EXPECT_EQ("someFunction(\"aaabbbcccd\"\n"
+            "             \"ddeeefff\");",
+            format("someFunction(\"aaabbbcccdddeeefff\");",
+                   getLLVMStyleWithColumns(25)));
+  EXPECT_EQ("someFunction1234567890(\n"
+            "    \"aaabbbcccdddeeefff\");",
+            format("someFunction1234567890(\"aaabbbcccdddeeefff\");",
+                   getLLVMStyleWithColumns(26)));
+  EXPECT_EQ("someFunction1234567890(\n"
+            "    \"aaabbbcccdddeeeff\"\n"
+            "    \"f\");",
+            format("someFunction1234567890(\"aaabbbcccdddeeefff\");",
+                   getLLVMStyleWithColumns(25)));
+  EXPECT_EQ("someFunction1234567890(\n"
+            "    \"aaabbbcccdddeeeff\"\n"
+            "    \"f\");",
+            format("someFunction1234567890(\"aaabbbcccdddeeefff\");",
+                   getLLVMStyleWithColumns(24)));
+  EXPECT_EQ("someFunction(\n"
+            "    \"aaabbbcc \"\n"
+            "    \"dddeeefff\");",
+            format("someFunction(\"aaabbbcc dddeeefff\");",
+                   getLLVMStyleWithColumns(25)));
+  EXPECT_EQ("someFunction(\"aaabbbccc \"\n"
+            "             \"ddeeefff\");",
+            format("someFunction(\"aaabbbccc ddeeefff\");",
+                   getLLVMStyleWithColumns(25)));
+  EXPECT_EQ("someFunction1234567890(\n"
+            "    \"aaabb \"\n"
+            "    \"cccdddeeefff\");",
+            format("someFunction1234567890(\"aaabb cccdddeeefff\");",
+                   getLLVMStyleWithColumns(25)));
+  EXPECT_EQ("#define A          \\\n"
+            "  string s =       \\\n"
+            "      \"123456789\"  \\\n"
+            "      \"0\";         \\\n"
+            "  int i;",
+            format("#define A string s = \"1234567890\"; int i;",
+                   getLLVMStyleWithColumns(20)));
+}
+
 TEST_F(FormatTest, DoNotBreakStringLiteralsInEscapeSequence) {
   EXPECT_EQ("\"\\a\"",
             format("\"\\a\"", getLLVMStyleWithColumns(3)));
@@ -3953,6 +4044,93 @@ TEST_F(FormatTest, DoNotCreateUnreasonableUnwrappedLines) {
                "}");
 }
 
+TEST_F(FormatTest, FormatsClosingBracesInEmptyNestedBlocks) {
+  verifyFormat("class X {\n"
+               "  void f() {\n"
+               "  }\n"
+               "};",
+               getLLVMStyleWithColumns(12));
+}
+
+TEST_F(FormatTest, ConfigurableIndentWidth) {
+  FormatStyle EightIndent = getLLVMStyleWithColumns(18);
+  EightIndent.IndentWidth = 8;
+  verifyFormat("void f() {\n"
+               "        someFunction();\n"
+               "        if (true) {\n"
+               "                f();\n"
+               "        }\n"
+               "}",
+               EightIndent);
+  verifyFormat("class X {\n"
+               "        void f() {\n"
+               "        }\n"
+               "};",
+               EightIndent);
+  verifyFormat("int x[] = {\n"
+               "        call(),\n"
+               "        call(),\n"
+               "};",
+               EightIndent);
+}
+
+TEST_F(FormatTest, ConfigurableUseOfTab) {
+  FormatStyle Tab = getLLVMStyleWithColumns(42);
+  Tab.IndentWidth = 8;
+  Tab.UseTab = true;
+  Tab.AlignEscapedNewlinesLeft = true;
+  verifyFormat("class X {\n"
+               "\tvoid f() {\n"
+               "\t\tsomeFunction(parameter1,\n"
+               "\t\t\t     parameter2);\n"
+               "\t}\n"
+               "};",
+               Tab);
+  verifyFormat("#define A                        \\\n"
+               "\tvoid f() {               \\\n"
+               "\t\tsomeFunction(    \\\n"
+               "\t\t    parameter1,  \\\n"
+               "\t\t    parameter2); \\\n"
+               "\t}",
+               Tab);
+}
+
+TEST_F(FormatTest, LinuxBraceBreaking) {
+  FormatStyle BreakBeforeBrace = getLLVMStyle();
+  BreakBeforeBrace.BreakBeforeBraces = FormatStyle::BS_Linux;
+  verifyFormat("namespace a\n"
+               "{\n"
+               "class A\n"
+               "{\n"
+               "  void f()\n"
+               "  {\n"
+               "    if (true) {\n"
+               "      a();\n"
+               "      b();\n"
+               "    }\n"
+               "  }\n"
+               "}\n"
+               "}",
+               BreakBeforeBrace);
+}
+
+TEST_F(FormatTest, StroustrupBraceBreaking) {
+  FormatStyle BreakBeforeBrace = getLLVMStyle();
+  BreakBeforeBrace.BreakBeforeBraces = FormatStyle::BS_Stroustrup;
+  verifyFormat("namespace a {\n"
+               "class A {\n"
+               "  void f()\n"
+               "  {\n"
+               "    if (true) {\n"
+               "      a();\n"
+               "      b();\n"
+               "    }\n"
+               "  }\n"
+               "}\n"
+               "}",
+               BreakBeforeBrace);
+}
+
 bool allStylesEqual(ArrayRef<FormatStyle> Styles) {
   for (size_t i = 1; i < Styles.size(); ++i)
     if (!(Styles[0] == Styles[i]))
@@ -3994,9 +4172,9 @@ TEST_F(FormatTest, ParsesConfiguration) {
 #define CHECK_PARSE_BOOL(FIELD)                                                \
   Style.FIELD = false;                                                         \
   EXPECT_EQ(0, parseConfiguration(#FIELD ": true", &Style).value());           \
-  EXPECT_EQ(true, Style.FIELD);                                                \
+  EXPECT_TRUE(Style.FIELD);                                                \
   EXPECT_EQ(0, parseConfiguration(#FIELD ": false", &Style).value());          \
-  EXPECT_EQ(false, Style.FIELD);
+  EXPECT_FALSE(Style.FIELD);
 
   CHECK_PARSE_BOOL(AlignEscapedNewlinesLeft);
   CHECK_PARSE_BOOL(AllowAllParametersOfDeclarationOnNextLine);
@@ -4007,6 +4185,7 @@ TEST_F(FormatTest, ParsesConfiguration) {
   CHECK_PARSE_BOOL(IndentCaseLabels);
   CHECK_PARSE_BOOL(ObjCSpaceBeforeProtocolList);
   CHECK_PARSE_BOOL(PointerBindsToType);
+  CHECK_PARSE_BOOL(UseTab);
 
   CHECK_PARSE("AccessModifierOffset: -1234", AccessModifierOffset, -1234);
   CHECK_PARSE("ColumnLimit: 1234", ColumnLimit, 1234u);
@@ -4016,6 +4195,7 @@ TEST_F(FormatTest, ParsesConfiguration) {
               PenaltyReturnTypeOnItsOwnLine, 1234u);
   CHECK_PARSE("SpacesBeforeTrailingComments: 1234",
               SpacesBeforeTrailingComments, 1234u);
+  CHECK_PARSE("IndentWidth: 32", IndentWidth, 32u);
 
   Style.Standard = FormatStyle::LS_Auto;
   CHECK_PARSE("Standard: C++03", Standard, FormatStyle::LS_Cpp03);
@@ -4026,6 +4206,14 @@ TEST_F(FormatTest, ParsesConfiguration) {
   FormatStyle BaseStyle = getLLVMStyle();
   CHECK_PARSE("BasedOnStyle: LLVM", ColumnLimit, BaseStyle.ColumnLimit);
   CHECK_PARSE("BasedOnStyle: LLVM\nColumnLimit: 1234", ColumnLimit, 1234u);
+
+  Style.BreakBeforeBraces = FormatStyle::BS_Stroustrup;
+  CHECK_PARSE("BreakBeforeBraces: Attach", BreakBeforeBraces,
+              FormatStyle::BS_Attach);
+  CHECK_PARSE("BreakBeforeBraces: Linux", BreakBeforeBraces,
+              FormatStyle::BS_Linux);
+  CHECK_PARSE("BreakBeforeBraces: Stroustrup", BreakBeforeBraces,
+              FormatStyle::BS_Stroustrup);
 
 #undef CHECK_PARSE
 #undef CHECK_PARSE_BOOL
