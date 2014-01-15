@@ -393,6 +393,8 @@ private:
         if (CurrentToken->isOneOf(tok::star, tok::amp))
           CurrentToken->Type = TT_PointerOrReference;
         consumeToken();
+        if (CurrentToken->Previous->Type == TT_BinaryOperator)
+          CurrentToken->Previous->Type = TT_OverloadedOperator;
       }
       if (CurrentToken) {
         CurrentToken->Type = TT_OverloadedOperatorLParen;
@@ -1180,7 +1182,8 @@ bool TokenAnnotator::spaceRequiredBetween(const AnnotatedLine &Line,
   if (Left.is(tok::coloncolon))
     return false;
   if (Right.is(tok::coloncolon))
-    return !Left.isOneOf(tok::identifier, tok::greater, tok::l_paren);
+    return !Left.isOneOf(tok::identifier, tok::greater, tok::l_paren,
+                         tok::r_paren);
   if (Left.is(tok::less) || Right.isOneOf(tok::greater, tok::less))
     return false;
   if (Right.is(tok::ellipsis))
@@ -1289,7 +1292,8 @@ bool TokenAnnotator::spaceRequiredBefore(const AnnotatedLine &Line,
     return true;
   if (Tok.Previous->Type == TT_TemplateCloser && Tok.is(tok::l_paren))
     return false;
-  if (Tok.is(tok::less) && Line.First->is(tok::hash))
+  if (Tok.is(tok::less) && Tok.Previous->isNot(tok::l_paren) &&
+      Line.First->is(tok::hash))
     return true;
   if (Tok.Type == TT_TrailingUnaryOperator)
     return false;
@@ -1318,7 +1322,8 @@ bool TokenAnnotator::canBreakBefore(const AnnotatedLine &Line,
       Right.is(tok::question))
     return true;
   if (Right.Type == TT_RangeBasedForLoopColon ||
-      Right.Type == TT_OverloadedOperatorLParen)
+      Right.Type == TT_OverloadedOperatorLParen ||
+      Right.Type == TT_OverloadedOperator)
     return false;
   if (Left.Type == TT_RangeBasedForLoopColon)
     return true;

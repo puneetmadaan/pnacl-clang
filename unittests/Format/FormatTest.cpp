@@ -138,6 +138,7 @@ TEST_F(FormatTest, FormatsNestedCall) {
 TEST_F(FormatTest, NestedNameSpecifiers) {
   verifyFormat("vector< ::Type> v;");
   verifyFormat("::ns::SomeFunction(::ns::SomeOtherFunction())");
+  verifyFormat("static constexpr bool Bar = decltype(bar())::value;");
 }
 
 TEST_F(FormatTest, OnlyGeneratesNecessaryReplacements) {
@@ -1813,7 +1814,7 @@ TEST_F(FormatTest, IndentsPPDirectiveInReducedSpace) {
   verifyFormat("#define A( \\\n    BB)", getLLVMStyleWithColumns(12));
   verifyFormat("#define A( \\\n    A, B)", getLLVMStyleWithColumns(12));
   // FIXME: We never break before the macro name.
-  verifyFormat("#define AA(\\\n    B)", getLLVMStyleWithColumns(12));
+  verifyFormat("#define AA( \\\n    B)", getLLVMStyleWithColumns(12));
 
   verifyFormat("#define A A\n#define A A");
   verifyFormat("#define A(X) A\n#define A A");
@@ -1886,9 +1887,9 @@ TEST_F(FormatTest, MacroDefinitionInsideStatement) {
 
 TEST_F(FormatTest, HashInMacroDefinition) {
   verifyFormat("#define A \\\n  b #c;", getLLVMStyleWithColumns(11));
-  verifyFormat("#define A \\\n"
-               "  {       \\\n"
-               "    f(#c);\\\n"
+  verifyFormat("#define A  \\\n"
+               "  {        \\\n"
+               "    f(#c); \\\n"
                "  }",
                getLLVMStyleWithColumns(11));
 
@@ -1941,6 +1942,9 @@ TEST_F(FormatTest, MacroDefinitionsWithIncompleteCode) {
   verifyFormat("#define A template <typename T>");
   verifyFormat("#define STR(x) #x\n"
                "f(STR(this_is_a_string_literal{));");
+  verifyFormat("#pragma omp threadprivate( \\\n"
+               "    y)), // expected-warning",
+               getLLVMStyleWithColumns(28));
 }
 
 TEST_F(FormatTest, MacrosWithoutTrailingSemicolon) {
@@ -2609,6 +2613,8 @@ TEST_F(FormatTest, BreaksFunctionDeclarations) {
   // Treat overloaded operators like other functions.
   verifyFormat("SomeLoooooooooooooooooooooooooogType\n"
                "operator>(const SomeLoooooooooooooooooooooooooogType &other);");
+  verifyFormat("SomeLoooooooooooooooooooooooooogType\n"
+               "operator>>(const SomeLooooooooooooooooooooooooogType &other);");
   verifyGoogleFormat(
       "SomeLoooooooooooooooooooooooooooooogType operator<<(\n"
       "    const SomeLooooooooogType &a, const SomeLooooooooogType &b);");
@@ -3987,6 +3993,9 @@ TEST_F(FormatTest, HandlesIncludeDirectives) {
   verifyFormat("#import \"a/b/string\"");
   verifyFormat("#import \"string.h\"");
   verifyFormat("#import \"string.h\"");
+  verifyFormat("#if __has_include(<strstream>)\n"
+               "#include <strstream>\n"
+               "#endif");
 }
 
 //===----------------------------------------------------------------------===//
@@ -4156,6 +4165,9 @@ TEST_F(FormatTest, LayoutCxx11ConstructorBraceInitializers) {
         "                           // comment 2\n"
         "                           param3, param4\n"
         "                         });");
+    verifyFormat(
+        "std::this_thread::sleep_for(\n"
+        "    std::chrono::nanoseconds{ std::chrono::seconds{ 1 } } / 5);");
 
     FormatStyle NoSpaces = getLLVMStyle();
     NoSpaces.Cpp11BracedListStyle = true;
@@ -4387,7 +4399,7 @@ TEST_F(FormatTest, BlockComments) {
   EXPECT_EQ("/* */ /* */ /* */\n/* */ /* */ /* */",
             format("/* *//* */  /* */\n/* *//* */  /* */"));
   EXPECT_EQ("/* */ a /* */ b;", format("  /* */  a/* */  b;"));
-  EXPECT_EQ("#define A /*123*/\\\n"
+  EXPECT_EQ("#define A /*123*/ \\\n"
             "  b\n"
             "/* */\n"
             "someCall(\n"
@@ -4784,6 +4796,10 @@ TEST_F(FormatTest, FormatObjCImplementation) {
 
   verifyFormat("@implementation Foo (HackStuff)\n"
                "+ (id)init {\n}\n"
+               "@end");
+  verifyFormat("@implementation ObjcClass\n"
+               "- (void)method;\n"
+               "{}\n"
                "@end");
 }
 
