@@ -1606,6 +1606,24 @@ TEST_F(FormatTest, PreventConfusingIndents) {
                "                           ddd);");
 }
 
+TEST_F(FormatTest, LineBreakingInBinaryExpressions) {
+  verifyFormat(
+      "bool aaaaaaa =\n"
+      "    aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa(aaa).aaaaaaaaaaaaaaaaaaa() ||\n"
+      "    bbbbbbbb();");
+  verifyFormat("bool aaaaaaaaaaaaaaaaaaaaa =\n"
+               "    aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa != bbbbbbbbbbbbbbbbbb &&\n"
+               "    ccccccccc == ddddddddddd;");
+
+  verifyFormat("aaaaaa = aaaaaaa(aaaaaaa, // break\n"
+               "                 aaaaaa) &&\n"
+               "         bbbbbb && cccccc;");
+  verifyFormat("Whitespaces.addUntouchableComment(\n"
+               "    SourceMgr.getSpellingColumnNumber(\n"
+               "        TheLine.Last->FormatTok.Tok.getLocation()) -\n"
+               "    1);");
+}
+
 TEST_F(FormatTest, ExpressionIndentation) {
   verifyFormat("bool value = aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa +\n"
                "                     aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa +\n"
@@ -2399,14 +2417,18 @@ TEST_F(FormatTest, UnderstandsBinaryOperators) {
 
 TEST_F(FormatTest, UnderstandsPointersToMembers) {
   verifyFormat("int A::*x;");
-  // FIXME: Recognize pointers to member functions.
-  //verifyFormat("int (S::*func)(void *);");
-  verifyFormat("int(S::*func)(void *);");
-  verifyFormat("(a->*f)();");
-  verifyFormat("a->*x;");
-  verifyFormat("(a.*f)();");
-  verifyFormat("((*a).*f)();");
-  verifyFormat("a.*x;");
+  verifyFormat("int (S::*func)(void *);");
+  verifyFormat("typedef bool *(Class::*Member)() const;");
+  verifyFormat("void f() {\n"
+               "  (a->*f)();\n"
+               "  a->*x;\n"
+               "  (a.*f)();\n"
+               "  ((*a).*f)();\n"
+               "  a.*x;\n"
+               "}");
+  FormatStyle Style = getLLVMStyle();
+  Style.PointerBindsToType = true;
+  verifyFormat("typedef bool* (Class::*Member)() const;", Style);
 }
 
 TEST_F(FormatTest, UnderstandsUnaryOperators) {
