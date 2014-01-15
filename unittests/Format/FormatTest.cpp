@@ -576,6 +576,9 @@ TEST_F(FormatTest, UnderstandsSingleLineComments) {
   verifyFormat("void f() {\n"
                "  // Doesn't do anything\n"
                "}");
+  verifyFormat("SomeObject\n"
+               "    // Calling someFunction on SomeObject\n"
+               "    .someFunction();");
   verifyFormat("void f(int i,  // some comment (probably for i)\n"
                "       int j,  // some comment (probably for j)\n"
                "       int k); // some comment (probably for k)");
@@ -2118,10 +2121,10 @@ TEST_F(FormatTest, PreventConfusingIndents) {
       "        aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa),\n"
       "    aaaaaaaaaaaaaaaaaaaaaaaa);");
   verifyFormat(
-      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa[\n"
-      "    aaaaaaaaaaaaaaaaaaaaaaaa[\n"
-      "        aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa],\n"
-      "    aaaaaaaaaaaaaaaaaaaaaaaa];");
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+      "    [aaaaaaaaaaaaaaaaaaaaaaaa\n"
+      "         [aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa]\n"
+      "         [aaaaaaaaaaaaaaaaaaaaaaaa]];");
   verifyFormat(
       "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa<\n"
       "    aaaaaaaaaaaaaaaaaaaaaaaa<\n"
@@ -2473,9 +2476,13 @@ TEST_F(FormatTest, TrailingReturnType) {
   verifyFormat("template <size_t Order, typename T>\n"
                "auto load_img(const std::string &filename)\n"
                "    -> alias::tensor<Order, T, mem::tag::cpu> {}");
+
+  // Not trailing return types.
+  verifyFormat("void f() { auto a = b->c(); }");
 }
 
 TEST_F(FormatTest, BreaksFunctionDeclarationsWithTrailingTokens) {
+  // Avoid breaking before trailing 'const'.
   verifyFormat("void someLongFunction(\n"
                "    int someLongParameter) const {}",
                getLLVMStyleWithColumns(46));
@@ -2494,6 +2501,13 @@ TEST_F(FormatTest, BreaksFunctionDeclarationsWithTrailingTokens) {
                "    const {}",
                Style);
 
+  // Avoid breaking before other trailing annotations, if they are not
+  // function-like.
+  verifyFormat("void SomeFunction(aaaaaaaaaaaaaaaaaaaaaaaaaa,\n"
+               "                  aaaaaaaaaaaaaaaaaaaaaaaaaa) OVERRIDE;");
+
+  // Breaking before function-like trailing annotations is fine to keep them
+  // close to their arguments.
   verifyFormat("void aaaaaaaaaaaa(int aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa)\n"
                "    LOCKS_EXCLUDED(aaaaaaaaaaaaa);");
   verifyFormat("void aaaaaaaaaaaa(int aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa) const\n"
@@ -2509,6 +2523,10 @@ TEST_F(FormatTest, BreaksFunctionDeclarationsWithTrailingTokens) {
                "    __attribute__((unused));");
   verifyFormat(
       "bool aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+      "    GUARDED_BY(aaaaaaaaaaaa);",
+      getGoogleStyle());
+  verifyFormat(
+      "bool aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
       "    GUARDED_BY(aaaaaaaaaaaa);",
       getGoogleStyle());
 }
@@ -2991,6 +3009,27 @@ TEST_F(FormatTest, AlignsPipes) {
                "             << bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb;");
   verifyFormat("llvm::outs() << \"aaaaaaaaaaaaaaaaaaaaaaaa: \"\n"
                "             << aaaaaaaaaaaaa(aaaaaaaaaaaaaaaaaaaaaaaaaaaa);");
+
+  // Breaking before the first "<<" is generally not desirable.
+  verifyFormat(
+      "llvm::errs()\n"
+      "    << \"aaaaaaaaaaaaaaaaaaa: \" << aaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+      "    << \"aaaaaaaaaaaaaaaaaaa: \" << aaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+      "    << \"aaaaaaaaaaaaaaaaaaa: \" << aaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+      "    << \"aaaaaaaaaaaaaaaaaaa: \" << aaaaaaaaaaaaaaaaaaaaaaaaaaaa;",
+      getLLVMStyleWithColumns(70));
+  verifyFormat("llvm::errs() << \"aaaaaaaaaaaaaaaaaaa: \"\n"
+               "             << aaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+               "             << \"aaaaaaaaaaaaaaaaaaa: \"\n"
+               "             << aaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+               "             << \"aaaaaaaaaaaaaaaaaaa: \"\n"
+               "             << aaaaaaaaaaaaaaaaaaaaaaaaaaaa;",
+               getLLVMStyleWithColumns(70));
+
+  // But sometimes, breaking before the first "<<" is necessary.
+  verifyFormat("Diag(aaaaaaaaaaaaaaaaaaaaaaaaaaaaa, bbbbbbbbb)\n"
+               "    << aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+               "    << aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa;");
 
   verifyFormat(
       "llvm::errs() << aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
@@ -3559,11 +3598,11 @@ TEST_F(FormatTest, FormatsCasts) {
 
   verifyFormat("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa *foo = (aaaaaaaaaaaaaaaaa *)\n"
                "    bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb;");
+  // FIXME: The indentation here is not ideal.
   verifyFormat(
-      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa[\n"
-      "    bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb] =\n"
-      "    (*cccccccccccccccc)[\n"
-      "        dddddddddddddddddddddddddddddddddddddddddddddddddddddddd];");
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+      "    [bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb] = (*cccccccccccccccc)\n"
+      "        [dddddddddddddddddddddddddddddddddddddddddddddddddddddddd];");
 }
 
 TEST_F(FormatTest, FormatsFunctionTypes) {
@@ -3641,6 +3680,22 @@ TEST_F(FormatTest, BreaksLongDeclarations) {
                      "aaaaaaaaaaaaaaaaaaaaaaaa<T>::aaaaaaa() {}");
   verifyGoogleFormat("A<A<A>> aaaaaaaaaa(int aaaaaaaaaaaaaaaaaaaaaaaaaaa,\n"
                      "                   int aaaaaaaaaaaaaaaaaaaaaaa);");
+}
+
+TEST_F(FormatTest, FormatsArrays) {
+  verifyFormat("aaaaaaaaaaaaaaaaaaaaaaaaa[aaaaaaaaaaaaaaaaaaaaaaaaa]\n"
+               "                         [bbbbbbbbbbbbbbbbbbbbbbbbb] = c;");
+  verifyFormat("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+               "    [bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb] = ccccccccccc;");
+  verifyFormat("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+               "    [a][bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb] = cccccccc;");
+  verifyFormat("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+               "    [aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa]\n"
+               "    [bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb] = ccccccccccc;");
+  verifyFormat(
+      "llvm::outs() << \"aaaaaaaaaaaa: \"\n"
+      "             << (*aaaaaaaiaaaaaaa)[aaaaaaaaaaaaaaaaaaaaaaaaa]\n"
+      "                                  [aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa];");
 }
 
 TEST_F(FormatTest, LineStartsWithSpecialCharacter) {
@@ -4776,6 +4831,13 @@ TEST_F(FormatTest, ReformatRegionAdjustsIndent) {
                    "       // line 2\n"
                    "  int b;",
                    35, 0, getLLVMStyle()));
+  EXPECT_EQ("  int a;\n"
+            "  void\n"
+            "  ffffff() {\n"
+            "  }",
+            format("  int a;\n"
+                   "void ffffff() {}",
+                   11, 0, getLLVMStyleWithColumns(11)));
 }
 
 TEST_F(FormatTest, BreakStringLiterals) {
@@ -4900,6 +4962,16 @@ TEST_F(FormatTest, BreakStringLiterals) {
                    "1111111111characte"
                    "rs\"",
                    getLLVMStyleWithColumns(20)));
+
+  // Verify that splitting the strings understands
+  // Style::AlwaysBreakBeforeMultilineStrings.
+  EXPECT_EQ("aaaaaaaaaaaa(aaaaaaaaaaaaa,\n"
+            "             \"aaaaaaaaaaaaaaaaaaaaaa aaaaaaaaaaaaaaaaaaaaaa \"\n"
+            "             \"aaaaaaaaaaaaaaaaaaaaaa aaaaaaaaaaaaaaaaaaaaaa\");",
+            format("aaaaaaaaaaaa(aaaaaaaaaaaaa, \"aaaaaaaaaaaaaaaaaaaaaa "
+                   "aaaaaaaaaaaaaaaaaaaaaa aaaaaaaaaaaaaaaaaaaaaa "
+                   "aaaaaaaaaaaaaaaaaaaaaa\");",
+                   getGoogleStyle()));
 
   FormatStyle AlignLeft = getLLVMStyleWithColumns(12);
   AlignLeft.AlignEscapedNewlinesLeft = true;

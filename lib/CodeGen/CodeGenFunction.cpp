@@ -1384,6 +1384,7 @@ void CodeGenFunction::EmitVariablyModifiedType(QualType type) {
     case Type::UnaryTransform:
     case Type::Attributed:
     case Type::SubstTemplateTypeParm:
+    case Type::PackExpansion:
       // Keep walking after single level desugaring.
       type = type.getSingleStepDesugaredType(getContext());
       break;
