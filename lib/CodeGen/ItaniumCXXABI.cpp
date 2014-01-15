@@ -39,22 +39,12 @@ private:
 protected:
   bool UseARMMethodPtrABI;
   bool UseARMGuardVarABI;
-  // It's a little silly for us to cache this.
-  llvm::IntegerType *getPtrDiffTy() {
-    if (!PtrDiffTy) {
-      QualType T = getContext().getPointerDiffType();
-      llvm::Type *Ty = CGM.getTypes().ConvertType(T);
-      PtrDiffTy = cast<llvm::IntegerType>(Ty);
-    }
-    return PtrDiffTy;
-  }
 
 public:
   ItaniumCXXABI(CodeGen::CodeGenModule &CGM,
                 bool UseARMMethodPtrABI = false,
                 bool UseARMGuardVarABI = false) :
-    CGCXXABI(CGM), PtrDiffTy(0),
-    UseARMMethodPtrABI(UseARMMethodPtrABI),
+    CGCXXABI(CGM), UseARMMethodPtrABI(UseARMMethodPtrABI),
     UseARMGuardVarABI(UseARMGuardVarABI) { }
 
   bool isReturnTypeIndirect(const CXXRecordDecl *RD) const {
