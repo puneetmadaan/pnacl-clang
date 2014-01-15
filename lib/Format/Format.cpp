@@ -140,7 +140,7 @@ FormatStyle getLLVMStyle() {
   LLVMStyle.PenaltyBreakComment = 45;
   LLVMStyle.PenaltyBreakString = 1000;
   LLVMStyle.PenaltyExcessCharacter = 1000000;
-  LLVMStyle.PenaltyReturnTypeOnItsOwnLine = 75;
+  LLVMStyle.PenaltyReturnTypeOnItsOwnLine = 60;
   LLVMStyle.PointerBindsToType = false;
   LLVMStyle.SpacesBeforeTrailingComments = 1;
   LLVMStyle.SpacesInBracedLists = true;
@@ -271,9 +271,9 @@ public:
     LineState State;
     State.Column = FirstIndent;
     State.NextToken = RootToken;
-    State.Stack.push_back(
-        ParenState(FirstIndent, FirstIndent, /*AvoidBinPacking=*/false,
-                   /*NoLineBreak=*/false));
+    State.Stack.push_back(ParenState(FirstIndent, FirstIndent,
+                                     /*AvoidBinPacking=*/false,
+                                     /*NoLineBreak=*/false));
     State.LineContainsContinuedForLoopSection = false;
     State.ParenLevel = 0;
     State.StartOfStringLiteral = 0;
@@ -320,7 +320,7 @@ private:
           AvoidBinPacking(AvoidBinPacking), BreakBeforeParameter(false),
           NoLineBreak(NoLineBreak), ColonPos(0), StartOfFunctionCall(0),
           NestedNameSpecifierContinuation(0), CallContinuation(0),
-          VariablePos(0), ForFakeParenthesis(false) {}
+          VariablePos(0), ContainsLineBreak(false) {}
 
     /// \brief The position to which a specific parenthesis level needs to be
     /// indented.
@@ -379,12 +379,12 @@ private:
     /// Used to align further variables if necessary.
     unsigned VariablePos;
 
-    /// \brief \c true if this \c ParenState was created for a fake parenthesis.
+    /// \brief \c true if this \c ParenState already contains a line-break.
     ///
-    /// Does not need to be considered for memoization / the comparison function
-    /// as otherwise identical states will have the same fake/non-fake
-    /// \c ParenStates.
-    bool ForFakeParenthesis;
+    /// The first line break in a certain \c ParenState causes extra penalty so
+    /// that clang-format prefers similar breaks, i.e. breaks in the same
+    /// parenthesis.
+    bool ContainsLineBreak;
 
     bool operator<(const ParenState &Other) const {
       if (Indent != Other.Indent)
@@ -411,6 +411,8 @@ private:
         return CallContinuation < Other.CallContinuation;
       if (VariablePos != Other.VariablePos)
         return VariablePos < Other.VariablePos;
+      if (ContainsLineBreak != Other.ContainsLineBreak)
+        return ContainsLineBreak < Other.ContainsLineBreak;
       return false;
     }
   };
@@ -510,8 +512,12 @@ private:
     unsigned ContinuationIndent =
         std::max(State.Stack.back().LastSpace, State.Stack.back().Indent) + 4;
     if (Newline) {
+      State.Stack.back().ContainsLineBreak = true;
       if (Current.is(tok::r_brace)) {
-        State.Column = Line.Level * Style.IndentWidth;
+        if (Current.BlockKind == BK_BracedInit)
+          State.Column = State.Stack[State.Stack.size() - 2].LastSpace;
+        else
+          State.Column = Line.Level * Style.IndentWidth;
       } else if (Current.is(tok::string_literal) &&
                  State.StartOfStringLiteral != 0) {
         State.Column = State.StartOfStringLiteral;
@@ -533,7 +539,9 @@ private:
                  State.Stack.back().VariablePos != 0) {
         State.Column = State.Stack.back().VariablePos;
       } else if (Previous.ClosesTemplateDeclaration ||
-                 (Current.Type == TT_StartOfName && State.ParenLevel == 0 &&
+                 ((Current.Type == TT_StartOfName ||
+                   Current.is(tok::kw_operator)) &&
+                  State.ParenLevel == 0 &&
                   (!Style.IndentFunctionDeclarationAfterType ||
                    Line.StartsDefinition))) {
         State.Column = State.Stack.back().Indent;
@@ -664,10 +672,24 @@ private:
         State.Stack.back().LastSpace = State.Column;
       else if (Previous.Type == TT_InheritanceColon)
         State.Stack.back().Indent = State.Column;
-      else if (Previous.opensScope() && !Current.FakeLParens.empty())
-        // If this function has multiple parameters or a binary expression
-        // parameter, indent nested calls from the start of the first parameter.
-        State.Stack.back().LastSpace = State.Column;
+      else if (Previous.opensScope()) {
+        // If a function has multiple parameters (including a single parameter
+        // that is a binary expression) or a trailing call, indent all
+        // parameters from the opening parenthesis. This avoids confusing
+        // indents like:
+        //   OuterFunction(InnerFunctionCall(
+        //       ParameterToInnerFunction),
+        //                 SecondParameterToOuterFunction);
+        bool HasMultipleParameters = !Current.FakeLParens.empty();
+        bool HasTrailingCall = false;
+        if (Previous.MatchingParen) {
+          const FormatToken *Next = Previous.MatchingParen->getNextNonComment();
+          if (Next && Next->isOneOf(tok::period, tok::arrow))
+            HasTrailingCall = true;
+        }
+        if (HasMultipleParameters || HasTrailingCall)
+          State.Stack.back().LastSpace = State.Column;
+      }
     }
 
     return moveStateToNextToken(State, DryRun);
@@ -728,7 +750,7 @@ private:
              E = Current.FakeLParens.rend();
          I != E; ++I) {
       ParenState NewParenState = State.Stack.back();
-      NewParenState.ForFakeParenthesis = true;
+      NewParenState.ContainsLineBreak = false;
       NewParenState.Indent =
           std::max(std::max(State.Column, NewParenState.Indent),
                    State.Stack.back().LastSpace);
@@ -1013,8 +1035,11 @@ private:
       return;
     if (!NewLine && mustBreak(PreviousNode->State))
       return;
-    if (NewLine)
+    if (NewLine) {
+      if (!PreviousNode->State.Stack.back().ContainsLineBreak)
+        Penalty += 15;
       Penalty += PreviousNode->State.NextToken->SplitPenalty;
+    }
 
     StateNode *Node = new (Allocator.Allocate())
         StateNode(PreviousNode->State, NewLine, PreviousNode);
@@ -1105,8 +1130,9 @@ private:
          (Previous.ClosesTemplateDeclaration && State.ParenLevel == 0)))
       return true;
 
-    if (Current.Type == TT_StartOfName && Line.MightBeFunctionDecl &&
-        State.Stack.back().BreakBeforeParameter && State.ParenLevel == 0)
+    if ((Current.Type == TT_StartOfName || Current.is(tok::kw_operator)) &&
+        Line.MightBeFunctionDecl && State.Stack.back().BreakBeforeParameter &&
+        State.ParenLevel == 0)
       return true;
     return false;
   }
@@ -1283,9 +1309,9 @@ public:
           !AnnotatedLines[i].First->Next)
         AnnotatedLines[i].Level = NextNonCommentLine->Level;
       else
-        NextNonCommentLine =
-            AnnotatedLines[i].First->isNot(tok::r_brace) ? &AnnotatedLines[i]
-                                                         : NULL;
+        NextNonCommentLine = AnnotatedLines[i].First->isNot(tok::r_brace)
+                                 ? &AnnotatedLines[i]
+                                 : NULL;
     }
 
     std::vector<int> IndentForLevel;

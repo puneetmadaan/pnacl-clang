@@ -31,7 +31,7 @@ class AnnotatingParser {
 public:
   AnnotatingParser(AnnotatedLine &Line, IdentifierInfo &Ident_in)
       : Line(Line), CurrentToken(Line.First), KeywordVirtualFound(false),
-        NameFound(false), Ident_in(Ident_in) {
+        NameFound(false), AutoFound(false), Ident_in(Ident_in) {
     Contexts.push_back(Context(tok::unknown, 1, /*IsExpression=*/false));
   }
 
@@ -542,9 +542,9 @@ private:
     ScopedContextCreator(AnnotatingParser &P, tok::TokenKind ContextKind,
                          unsigned Increase)
         : P(P) {
-      P.Contexts.push_back(
-          Context(ContextKind, P.Contexts.back().BindingStrength + Increase,
-                  P.Contexts.back().IsExpression));
+      P.Contexts.push_back(Context(ContextKind,
+                                   P.Contexts.back().BindingStrength + Increase,
+                                   P.Contexts.back().IsExpression));
     }
 
     ~ScopedContextCreator() { P.Contexts.pop_back(); }
@@ -589,6 +589,10 @@ private:
         Contexts.back().FirstStartOfName = &Current;
         Current.Type = TT_StartOfName;
         NameFound = true;
+      } else if (Current.is(tok::kw_auto)) {
+        AutoFound = true;
+      } else if (Current.is(tok::arrow) && AutoFound) {
+        Current.Type = TT_TrailingReturnArrow;
       } else if (Current.isOneOf(tok::star, tok::amp, tok::ampamp)) {
         Current.Type =
             determineStarAmpUsage(Current, Contexts.back().CanBeExpression &&
@@ -625,8 +629,7 @@ private:
         if (ParensAreType && !ParensCouldEndDecl && !IsSizeOfOrAlignOf &&
             Contexts.back().IsExpression)
           IsCast = true;
-        if (Current.Next &&
-            Current.Next->isNot(tok::string_literal) &&
+        if (Current.Next && Current.Next->isNot(tok::string_literal) &&
             (Current.Next->Tok.isLiteral() ||
              Current.Next->isOneOf(tok::kw_sizeof, tok::kw_alignof)))
           IsCast = true;
@@ -634,6 +637,7 @@ private:
         // there is also an identifier before the ().
         if (LeftOfParens && (LeftOfParens->Tok.getIdentifierInfo() == NULL ||
                              LeftOfParens->is(tok::kw_return)) &&
+            LeftOfParens->Type != TT_OverloadedOperator &&
             LeftOfParens->Type != TT_TemplateCloser && Current.Next &&
             Current.Next->is(tok::identifier))
           IsCast = true;
@@ -678,9 +682,9 @@ private:
     if (PreviousNotConst == NULL)
       return false;
 
-    bool IsPPKeyword =
-        PreviousNotConst->is(tok::identifier) && PreviousNotConst->Previous &&
-        PreviousNotConst->Previous->is(tok::hash);
+    bool IsPPKeyword = PreviousNotConst->is(tok::identifier) &&
+                       PreviousNotConst->Previous &&
+                       PreviousNotConst->Previous->is(tok::hash);
 
     return (!IsPPKeyword && PreviousNotConst->is(tok::identifier)) ||
            PreviousNotConst->Type == TT_PointerOrReference ||
@@ -792,6 +796,7 @@ private:
   FormatToken *CurrentToken;
   bool KeywordVirtualFound;
   bool NameFound;
+  bool AutoFound;
   IdentifierInfo &Ident_in;
 };
 
@@ -952,9 +957,9 @@ void TokenAnnotator::calculateFormattingInformation(AnnotatedLine &Line) {
     if (Current->MustBreakBefore)
       Current->TotalLength = Current->Previous->TotalLength + Style.ColumnLimit;
     else
-      Current->TotalLength =
-          Current->Previous->TotalLength + Current->CodePointCount +
-          Current->SpacesRequiredBefore;
+      Current->TotalLength = Current->Previous->TotalLength +
+                             Current->CodePointCount +
+                             Current->SpacesRequiredBefore;
     // FIXME: Only calculate this if CanBreakBefore is true once static
     // initializers etc. are sorted out.
     // FIXME: Move magic numbers to a better place.
@@ -996,7 +1001,7 @@ unsigned TokenAnnotator::splitPenalty(const AnnotatedLine &Line,
   if (Left.is(tok::comma))
     return 1;
 
-  if (Right.Type == TT_StartOfName) {
+  if (Right.Type == TT_StartOfName || Right.is(tok::kw_operator)) {
     if (Line.First->is(tok::kw_for) && Right.PartOfMultiVariableDeclStmt)
       return 3;
     else if (Line.MightBeFunctionDecl && Right.BindingStrength == 1)
@@ -1165,6 +1170,9 @@ bool TokenAnnotator::spaceRequiredBefore(const AnnotatedLine &Line,
       (Tok.is(tok::equal) || Tok.Previous->is(tok::equal)))
     return false;
 
+  if (Tok.Type == TT_TrailingReturnArrow ||
+      Tok.Previous->Type == TT_TrailingReturnArrow)
+    return true;
   if (Tok.Previous->is(tok::comma))
     return true;
   if (Tok.is(tok::comma))
@@ -1203,7 +1211,7 @@ bool TokenAnnotator::spaceRequiredBefore(const AnnotatedLine &Line,
 bool TokenAnnotator::canBreakBefore(const AnnotatedLine &Line,
                                     const FormatToken &Right) {
   const FormatToken &Left = *Right.Previous;
-  if (Right.Type == TT_StartOfName)
+  if (Right.Type == TT_StartOfName || Right.is(tok::kw_operator))
     return true;
   if (Right.is(tok::colon) &&
       (Right.Type == TT_ObjCDictLiteral || Right.Type == TT_ObjCMethodExpr))
@@ -1234,7 +1242,8 @@ bool TokenAnnotator::canBreakBefore(const AnnotatedLine &Line,
     if (Left.is(tok::l_paren) && Right.is(tok::l_paren) &&
         Left.Previous->is(tok::kw___attribute))
       return false;
-    if (Left.is(tok::l_paren) && Left.Previous->Type == TT_BinaryOperator)
+    if (Left.is(tok::l_paren) && (Left.Previous->Type == TT_BinaryOperator ||
+                                  Left.Previous->is(tok::r_paren)))
       return false;
   }
 

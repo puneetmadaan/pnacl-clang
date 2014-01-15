@@ -773,11 +773,11 @@ TEST_F(FormatTest, UnderstandsBlockComments) {
   EXPECT_EQ(
       "void aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa(\n"
       "    aaaaaaaaaaaaaaaaaa,\n"
-      "    aaaaaaaaaaaaaaaaaa) { /* aaaaaaaaaaaaaaaaaaaaaaaaaaaaa */\n"
+      "    aaaaaaaaaaaaaaaaaa) { /*aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa*/\n"
       "}",
       format("void      aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa(\n"
              "                      aaaaaaaaaaaaaaaaaa  ,\n"
-             "    aaaaaaaaaaaaaaaaaa) {   /* aaaaaaaaaaaaaaaaaaaaaaaaaaaaa */\n"
+             "    aaaaaaaaaaaaaaaaaa) {   /*aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa*/\n"
              "}"));
 
   FormatStyle NoBinPacking = getLLVMStyle();
@@ -2456,6 +2456,23 @@ TEST_F(FormatTest, BreaksFunctionDeclarations) {
                "    aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
                "        aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,\n"
                "    bbbb bbbb);");
+
+  // Treat overloaded operators like other functions.
+  verifyFormat("SomeLoooooooooooooooooooooooooogType\n"
+               "operator>(const SomeLoooooooooooooooooooooooooogType &other);");
+  verifyGoogleFormat(
+      "SomeLoooooooooooooooooooooooooooooogType operator<<(\n"
+      "    const SomeLooooooooogType &a, const SomeLooooooooogType &b);");
+}
+
+TEST_F(FormatTest, TrailingReturnType) {
+  verifyFormat("auto foo() -> int;\n");
+  verifyFormat("struct S {\n"
+               "  auto bar() const -> int;\n"
+               "};");
+  verifyFormat("template <size_t Order, typename T>\n"
+               "auto load_img(const std::string &filename)\n"
+               "    -> alias::tensor<Order, T, mem::tag::cpu> {}");
 }
 
 TEST_F(FormatTest, BreaksFunctionDeclarationsWithTrailingTokens) {
@@ -2558,6 +2575,12 @@ TEST_F(FormatTest, BreaksDesireably) {
             "  x, y);",
             format("f(g(h(a, // comment\n"
                    "    b, c), d, e), x, y);"));
+
+  // Prefer breaking similar line breaks.
+  verifyFormat(
+      "const int kTrackingOptions = NSTrackingMouseMoved |\n"
+      "                             NSTrackingMouseEnteredAndExited |\n"
+      "                             NSTrackingActiveAlways;");
 }
 
 TEST_F(FormatTest, FormatsOneParameterPerLineIfNecessary) {
@@ -2696,9 +2719,10 @@ TEST_F(FormatTest, AlignsAfterAssignments) {
   verifyFormat(
       "int Result = (aaaaaaaaaaaaaaaaaaaaaaaaa + aaaaaaaaaaaaaaaaaaaaaaaaa +\n"
       "              aaaaaaaaaaaaaaaaaaaaaaaaa);");
-  verifyFormat("double LooooooooooooooooooooooooongResult =\n"
-               "    aaaaaaaaaaaaaaaaaaaaaaaa + aaaaaaaaaaaaaaaaaaaaaaaa +\n"
-               "    aaaaaaaaaaaaaaaaaaaaaaaa;");
+  verifyFormat(
+      "double LooooooooooooooooooooooooongResult = aaaaaaaaaaaaaaaaaaaaaaaa +\n"
+      "                                            aaaaaaaaaaaaaaaaaaaaaaaa +\n"
+      "                                            aaaaaaaaaaaaaaaaaaaaaaaa;");
 }
 
 TEST_F(FormatTest, AlignsAfterReturn) {
@@ -2723,9 +2747,9 @@ TEST_F(FormatTest, AlignsAfterReturn) {
 
 TEST_F(FormatTest, BreaksConditionalExpressions) {
   verifyFormat(
-      "aaaa(aaaaaaaaaaaaaaaaaaaa,\n"
-      "     aaaaaaaaaaaaaaaaaaaaaaaaaa ? aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
-      "                                : aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa);");
+      "aaaa(aaaaaaaaaaaaaaaaaaaa, aaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+      "                               ? aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+      "                               : aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa);");
   verifyFormat(
       "aaaa(aaaaaaaaaaaaaaaaaaaa, aaaaaaa ? aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
       "                                   : aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa);");
@@ -3000,9 +3024,9 @@ TEST_F(FormatTest, WrapsAtFunctionCallsIfNecessary) {
   verifyFormat(
       "aaaaa(aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,\n"
       "      aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa)\n"
-      "    .aaaaaaaaaaaaaaa(\n"
-      "         aa(aaaaaaaaaaaaaaaaaaaaaaaaaaa, aaaaaaaaaaaaaaaaaaaaaaaaaaa,\n"
-      "            aaaaaaaaaaaaaaaaaaaaaaaaaaa));");
+      "    .aaaaaaaaaaaaaaa(aa(aaaaaaaaaaaaaaaaaaaaaaaaaaa,\n"
+      "                        aaaaaaaaaaaaaaaaaaaaaaaaaaa,\n"
+      "                        aaaaaaaaaaaaaaaaaaaaaaaaaaa));");
   verifyFormat("if (aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
                "        .aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
                "        .aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
@@ -3037,6 +3061,15 @@ TEST_F(FormatTest, WrapsAtFunctionCallsIfNecessary) {
                "                         aaaaaaaaaaaaaaaaaaa,\n"
                "                         aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa);",
                NoBinPacking);
+
+  // If there is a subsequent call, change to hanging indentation.
+  verifyFormat(
+      "aaaaaaaaaaaaaaaaaaaa(aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa(\n"
+      "                         aaaaaaaaaaaaaaaaaa, aaaaaaaaaaaaaaaaa))\n"
+      "    .aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa();");
+  verifyFormat(
+      "aaaaaaaaaaaaaaaaaaaa(aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa(\n"
+      "    aaaaaaaaaaaaaaaaaa, aaaaaaaaaaaaaaaaa));");
 }
 
 TEST_F(FormatTest, WrapsTemplateDeclarations) {
@@ -3491,6 +3524,7 @@ TEST_F(FormatTest, FormatsCasts) {
   verifyFormat("int a = alignof(int) * b;", getGoogleStyle());
   verifyFormat("template <> void f<int>(int i) SOME_ANNOTATION;");
   verifyFormat("f(\"%\" SOME_MACRO(ll) \"d\");");
+  verifyFormat("aaaaa &operator=(const aaaaa &) LLVM_DELETED_FUNCTION;");
 
   // These are not casts, but at some point were confused with casts.
   verifyFormat("virtual void foo(int *) override;");
@@ -3770,6 +3804,13 @@ TEST_F(FormatTest, LayoutCxx11ConstructorBraceInitializers) {
         "                                 bbbbbbbbbbbbbbbbbbbb, bbbbb };");
     verifyFormat("DoSomethingWithVector({} /* No data */);");
     verifyFormat("DoSomethingWithVector({ {} /* No data */ }, { { 1, 2 } });");
+    verifyFormat(
+        "someFunction(OtherParam, BracedList{\n"
+        "                           // comment 1 (Forcing interesting break)\n"
+        "                           param1, param2,\n"
+        "                           // comment 2\n"
+        "                           param3, param4\n"
+        "                         });");
 
     FormatStyle NoSpaces = getLLVMStyle();
     NoSpaces.SpacesInBracedLists = false;
@@ -3967,7 +4008,7 @@ TEST_F(FormatTest, BlockComments) {
   EXPECT_EQ("/*\n"
             "*\n"
             " * aaaaaa\n"
-            "* aaaaaa\n"
+            "*aaaaaa\n"
             "*/",
             format("/*\n"
                    "*\n"
@@ -3977,7 +4018,7 @@ TEST_F(FormatTest, BlockComments) {
   EXPECT_EQ("/*\n"
             "**\n"
             "* aaaaaa\n"
-            "* aaaaaa\n"
+            "*aaaaaa\n"
             "*/",
             format("/*\n"
                    "**\n"
@@ -4017,6 +4058,33 @@ TEST_F(FormatTest, BlockComments) {
              "int    cccccccccccccccccccccccccccccc;  /* comment */\n"));
 
   verifyFormat("void f(int * /* unused */) {}");
+
+  EXPECT_EQ("/*\n"
+            " **\n"
+            " */",
+            format("/*\n"
+                   " **\n"
+                   " */"));
+  EXPECT_EQ("/*\n"
+            " *q\n"
+            " */",
+            format("/*\n"
+                   " *q\n"
+                   " */"));
+  EXPECT_EQ("/*\n"
+            " * q\n"
+            " */",
+            format("/*\n"
+                   " * q\n"
+                   " */"));
+  EXPECT_EQ("/*\n"
+            " **/",
+            format("/*\n"
+                   " **/"));
+  EXPECT_EQ("/*\n"
+            " ***/",
+            format("/*\n"
+                   " ***/"));
 }
 
 TEST_F(FormatTest, BlockCommentsInMacros) {
