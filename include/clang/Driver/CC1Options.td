@@ -476,6 +476,8 @@ def fno_deprecated_macro : Flag<["-"], "fno-deprecated-macro">,
   HelpText<"Undefines the __DEPRECATED macro">;
 def finstrument_functions_size : Separate<["-"], "finstrument-functions-size">,
   HelpText<"Minimum size of functions to instrument">;
+def fsized_deallocation : Flag<["-"], "fsized-deallocation">,
+  HelpText<"Enable C++1y sized global deallocation functions">;
 
 //===----------------------------------------------------------------------===//
 // Header Search Options
