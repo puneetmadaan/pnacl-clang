@@ -20,6 +20,8 @@
 namespace clang {
 namespace format {
 
+namespace {
+
 /// \brief A parser that gathers additional information about tokens.
 ///
 /// The \c TokenAnnotator tries to match parenthesis and square brakets and
@@ -583,13 +585,7 @@ private:
     }
 
     if (Current.Type == TT_Unknown) {
-      if (Current.Previous && Current.is(tok::identifier) &&
-          ((Current.Previous->is(tok::identifier) &&
-            Current.Previous->Tok.getIdentifierInfo()->getPPKeywordID() ==
-                tok::pp_not_keyword) ||
-           isSimpleTypeSpecifier(*Current.Previous) ||
-           Current.Previous->Type == TT_PointerOrReference ||
-           Current.Previous->Type == TT_TemplateCloser)) {
+      if (isStartOfName(Current)) {
         Contexts.back().FirstStartOfName = &Current;
         Current.Type = TT_StartOfName;
         NameFound = true;
@@ -662,6 +658,33 @@ private:
           Current.Type = TT_DesignatedInitializerPeriod;
       }
     }
+  }
+
+  /// \brief Take a guess at whether \p Tok starts a name of a function or
+  /// variable declaration.
+  ///
+  /// This is a heuristic based on whether \p Tok is an identifier following
+  /// something that is likely a type.
+  bool isStartOfName(const FormatToken &Tok) {
+    if (Tok.isNot(tok::identifier) || Tok.Previous == NULL)
+      return false;
+
+    // Skip "const" as it does not have an influence on whether this is a name.
+    FormatToken *PreviousNotConst = Tok.Previous;
+    while (PreviousNotConst != NULL && PreviousNotConst->is(tok::kw_const))
+      PreviousNotConst = PreviousNotConst->Previous;
+
+    if (PreviousNotConst == NULL)
+      return false;
+
+    bool IsPPKeyword =
+        PreviousNotConst->is(tok::identifier) && PreviousNotConst->Previous &&
+        PreviousNotConst->Previous->is(tok::hash);
+
+    return (!IsPPKeyword && PreviousNotConst->is(tok::identifier)) ||
+           PreviousNotConst->Type == TT_PointerOrReference ||
+           PreviousNotConst->Type == TT_TemplateCloser ||
+           isSimpleTypeSpecifier(*PreviousNotConst);
   }
 
   /// \brief Return the type of the given token assuming it is * or &.
@@ -865,6 +888,8 @@ private:
   FormatToken *Current;
 };
 
+} // end anonymous namespace
+
 void TokenAnnotator::annotate(AnnotatedLine &Line) {
   AnnotatingParser Parser(Line, Ident_in);
   Line.Type = Parser.parseLine();
@@ -1061,6 +1086,8 @@ bool TokenAnnotator::spaceRequiredBetween(const AnnotatedLine &Line,
     return !Left.isOneOf(tok::identifier, tok::greater, tok::l_paren);
   if (Left.is(tok::less) || Right.isOneOf(tok::greater, tok::less))
     return false;
+  if (Right.is(tok::ellipsis))
+    return false;
   if (Right.Type == TT_PointerOrReference)
     return Left.Tok.isLiteral() ||
            ((Left.Type != TT_PointerOrReference) && Left.isNot(tok::l_paren) &&
@@ -1069,7 +1096,7 @@ bool TokenAnnotator::spaceRequiredBetween(const AnnotatedLine &Line,
       (Left.Type != TT_PointerOrReference || Style.PointerBindsToType))
     return true;
   if (Left.Type == TT_PointerOrReference)
-    return Right.Tok.isLiteral() ||
+    return Right.Tok.isLiteral() || Right.Type == TT_BlockComment ||
            ((Right.Type != TT_PointerOrReference) &&
             Right.isNot(tok::l_paren) && Style.PointerBindsToType &&
             Left.Previous &&
@@ -1105,8 +1132,6 @@ bool TokenAnnotator::spaceRequiredBetween(const AnnotatedLine &Line,
            (Left.isNot(tok::colon) || Left.Type != TT_ObjCMethodExpr);
   if (Left.isOneOf(tok::identifier, tok::greater, tok::r_square) &&
       Right.is(tok::l_brace) && Right.getNextNoneComment())
-    return false;
-  if (Right.is(tok::ellipsis))
     return false;
   if (Left.is(tok::period) || Right.is(tok::period))
     return false;
