@@ -178,6 +178,12 @@ namespace clang {
     virtual void getDependentLibraryOption(llvm::StringRef Lib,
                                            llvm::SmallString<24> &Opt) const;
 
+    /// Gets the linker options necessary to detect object file mismatches on
+    /// this platform.
+    virtual void getDetectMismatchOption(llvm::StringRef Name,
+                                         llvm::StringRef Value,
+                                         llvm::SmallString<32> &Opt) const {}
+
     // @LOCALMOD-START
     /// Determine whether the sequentially consistent fence generated for
     /// the legacy GCC-style ``__sync_synchronize()`` builtin should be
