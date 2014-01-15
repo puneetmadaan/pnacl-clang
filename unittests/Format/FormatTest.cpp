@@ -2212,14 +2212,11 @@ TEST_F(FormatTest, PutEmptyBlocksIntoOneLine) {
 // Line break tests.
 //===----------------------------------------------------------------------===//
 
-TEST_F(FormatTest, FormatsAwesomeMethodCall) {
+TEST_F(FormatTest, PreventConfusingIndents) {
   verifyFormat(
       "SomeLongMethodName(SomeReallyLongMethod(CallOtherReallyLongMethod(\n"
       "                       parameter, parameter, parameter)),\n"
       "                   SecondLongCall(parameter));");
-}
-
-TEST_F(FormatTest, PreventConfusingIndents) {
   verifyFormat(
       "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa(\n"
       "    aaaaaaaaaaaaaaaaaaaaaaaa(\n"
@@ -2724,6 +2721,12 @@ TEST_F(FormatTest, BreaksDesireably) {
       "    aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa + aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,\n"
       "    aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa);");
 
+  // Indent consistently indenpendent of call expression.
+  verifyFormat("aaaaaaaaaaa(bbbbbbbbbbbbbbbbbbbbbbbbb.ccccccccccccccccc(\n"
+               "    dddddddddddddddddddddddddddddd));\n"
+               "aaaaaaaaaaa(bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb(\n"
+               "    dddddddddddddddddddddddddddddd));");
+
   // This test case breaks on an incorrect memoization, i.e. an optimization not
   // taking into account the StopAt value.
   verifyFormat(
@@ -2841,12 +2844,12 @@ TEST_F(FormatTest, AdaptiveOnePerLineFormatting) {
 TEST_F(FormatTest, FormatsBuilderPattern) {
   verifyFormat(
       "return llvm::StringSwitch<Reference::Kind>(name)\n"
-      "           .StartsWith(\".eh_frame_hdr\", ORDER_EH_FRAMEHDR)\n"
-      "           .StartsWith(\".eh_frame\", ORDER_EH_FRAME)\n"
-      "           .StartsWith(\".init\", ORDER_INIT)\n"
-      "           .StartsWith(\".fini\", ORDER_FINI)\n"
-      "           .StartsWith(\".hash\", ORDER_HASH)\n"
-      "           .Default(ORDER_TEXT);\n");
+      "    .StartsWith(\".eh_frame_hdr\", ORDER_EH_FRAMEHDR)\n"
+      "    .StartsWith(\".eh_frame\", ORDER_EH_FRAME)\n"
+      "    .StartsWith(\".init\", ORDER_INIT)\n"
+      "    .StartsWith(\".fini\", ORDER_FINI)\n"
+      "    .StartsWith(\".hash\", ORDER_HASH)\n"
+      "    .Default(ORDER_TEXT);\n");
 
   verifyFormat("return aaaaaaaaaaaaaaaaa->aaaaa().aaaaaaaaaaaaa().aaaaaa() <\n"
                "       aaaaaaaaaaaaaaa->aaaaa().aaaaaaaaaaaaa().aaaaaa();");
@@ -2890,6 +2893,9 @@ TEST_F(FormatTest, FormatsBuilderPattern) {
   verifyFormat("aaaaaaaaaaaaaaa.aaaaaaaaaaaaaaa()\n"
                "    .aaaaaaaaaaaaaaa.aaaaaaaaaaaaaaa()\n"
                "    .aaaaaaaaaaaaaaa();");
+  verifyFormat("aaaaaaaaaaaaa->aaaaaaaaaaaaaaaaaaaaaaaa()\n"
+               "    ->aaaaaaaaaaaaaae(0)\n"
+               "    ->aaaaaaaaaaaaaaa();");
 }
 
 TEST_F(FormatTest, BreaksAccordingToOperatorPrecedence) {
@@ -5256,7 +5262,7 @@ TEST_F(FormatTest, BreakStringLiterals) {
                    getLLVMStyleWithColumns(20)));
   EXPECT_EQ(
       "f(\"one two\".split(\n"
-      "      variable));",
+      "    variable));",
       format("f(\"one two\".split(variable));", getLLVMStyleWithColumns(20)));
   EXPECT_EQ("f(\"one two three four five six \"\n"
             "  \"seven\".split(\n"
