@@ -866,18 +866,16 @@ CollectRecordLambdaFields(const CXXRecordDecl *CXXDecl,
 }
 
 /// CollectRecordStaticField - Helper for CollectRecordFields.
-void CGDebugInfo::
-CollectRecordStaticField(const VarDecl *Var,
-                         SmallVectorImpl<llvm::Value *> &elements,
-                         llvm::DIType RecordTy) {
+llvm::DIDerivedType
+CGDebugInfo::CreateRecordStaticField(const VarDecl *Var,
+                                     llvm::DIType RecordTy) {
   // Create the descriptor for the static variable, with or without
   // constant initializers.
   llvm::DIFile VUnit = getOrCreateFile(Var->getLocation());
   llvm::DIType VTy = getOrCreateType(Var->getType(), VUnit);
 
-  // Do not describe enums as static members.
-  if (VTy.getTag() == llvm::dwarf::DW_TAG_enumeration_type)
-    return;
+  assert(VTy.getTag() != llvm::dwarf::DW_TAG_enumeration_type &&
+         "Do not describe enums as static members");
 
   unsigned LineNumber = getLineNumber(Var->getLocation());
   StringRef VName = Var->getName();
@@ -899,10 +897,10 @@ CollectRecordStaticField(const VarDecl *Var,
   else if (Access == clang::AS_protected)
     Flags |= llvm::DIDescriptor::FlagProtected;
 
-  llvm::DIType GV = DBuilder.createStaticMemberType(RecordTy, VName, VUnit,
-                                                    LineNumber, VTy, Flags, C);
-  elements.push_back(GV);
+  llvm::DIDerivedType GV = DBuilder.createStaticMemberType(
+      RecordTy, VName, VUnit, LineNumber, VTy, Flags, C);
   StaticDataMemberCache[Var->getCanonicalDecl()] = llvm::WeakVH(GV);
+  return GV;
 }
 
 /// CollectRecordNormalField - Helper for CollectRecordFields.
@@ -953,7 +951,7 @@ CollectRecordFields(const RecordDecl *record, llvm::DIFile tunit,
     for (RecordDecl::decl_iterator I = record->decls_begin(),
            E = record->decls_end(); I != E; ++I)
       if (const VarDecl *V = dyn_cast<VarDecl>(*I))
-        CollectRecordStaticField(V, elements, RecordTy);
+        elements.push_back(CreateRecordStaticField(V, RecordTy));
       else if (FieldDecl *field = dyn_cast<FieldDecl>(*I)) {
         CollectRecordNormalField(field, layout.getFieldOffset(fieldNo),
                                  tunit, elements, RecordTy);
@@ -1430,9 +1428,6 @@ llvm::DIType CGDebugInfo::CreateType(const RecordType *Ty, bool Declaration) {
   // safely be replaced by a forward declaration in the source code.
   if (DebugKind <= CodeGenOptions::LimitedDebugInfo && Declaration &&
       !RD->isCompleteDefinitionRequired() && CGM.getLangOpts().CPlusPlus) {
-    // FIXME: This implementation is problematic; there are some test
-    // cases where we violate the above principle, such as
-    // test/CodeGen/debug-info-records.c .
     llvm::DIDescriptor FDContext =
       getContextDescriptor(cast<Decl>(RD->getDeclContext()));
     llvm::DIType RetTy = getOrCreateRecordFwdDecl(RD, FDContext);
@@ -1999,6 +1994,10 @@ llvm::DIType CGDebugInfo::getOrCreateType(QualType Ty, llvm::DIFile Unit,
   // And update the type cache.
   TypeCache[TyPtr] = Res;
 
+  // FIXME: this getTypeOrNull call seems silly when we just inserted the type
+  // into the cache - but getTypeOrNull has a special case for cached interface
+  // types. We should probably just pull that out as a special case for the
+  // "else" block below & skip the otherwise needless lookup.
   llvm::DIType TC = getTypeOrNull(Ty);
   if (TC && TC.isForwardDecl())
     ReplaceMap.push_back(std::make_pair(TyPtr, static_cast<llvm::Value*>(TC)));
@@ -2237,7 +2236,7 @@ llvm::DIType CGDebugInfo::CreateLimitedType(const RecordType *Ty) {
       RealDecl.setTypeArray(llvm::DIArray(),
                             CollectCXXTemplateParams(TSpecial, DefUnit));
   }
-  return llvm::DIType(RealDecl);
+  return RealDecl;
 }
 
 /// CreateMemberType - Create new member and increase Offset by FType's size.
@@ -2998,19 +2997,25 @@ void CGDebugInfo::EmitDeclareOfBlockLiteralArgVariable(const CGBlockInfo &block,
   DbgDecl->setDebugLoc(llvm::DebugLoc::get(line, column, scope));
 }
 
-/// getStaticDataMemberDeclaration - If D is an out-of-class definition of
-/// a static data member of a class, find its corresponding in-class
-/// declaration.
-llvm::DIDerivedType CGDebugInfo::getStaticDataMemberDeclaration(const Decl *D) {
-  if (cast<VarDecl>(D)->isStaticDataMember()) {
-    llvm::DenseMap<const Decl *, llvm::WeakVH>::iterator
-      MI = StaticDataMemberCache.find(D->getCanonicalDecl());
-    if (MI != StaticDataMemberCache.end())
-      // Verify the info still exists.
-      if (llvm::Value *V = MI->second)
-        return llvm::DIDerivedType(cast<llvm::MDNode>(V));
-  }
-  return llvm::DIDerivedType();
+/// If D is an out-of-class definition of a static data member of a class, find
+/// its corresponding in-class declaration.
+llvm::DIDerivedType
+CGDebugInfo::getStaticDataMemberDeclarationOrNull(const VarDecl *D) {
+  if (!D->isStaticDataMember())
+    return llvm::DIDerivedType();
+  return getStaticDataMemberDeclaration(D);
+}
+
+llvm::DIDerivedType
+CGDebugInfo::getStaticDataMemberDeclaration(const VarDecl *D) {
+  llvm::DenseMap<const Decl *, llvm::WeakVH>::iterator
+    MI = StaticDataMemberCache.find(D->getCanonicalDecl());
+  if (MI != StaticDataMemberCache.end())
+    // Verify the info still exists.
+    if (llvm::Value *V = MI->second)
+      return llvm::DIDerivedType(cast<llvm::MDNode>(V));
+  llvm_unreachable(
+      "A static data member declaration should be available at this point");
 }
 
 /// EmitGlobalVariable - Emit information about a global variable.
@@ -3042,11 +3047,9 @@ void CGDebugInfo::EmitGlobalVariable(llvm::GlobalVariable *Var,
     LinkageName = StringRef();
   llvm::DIDescriptor DContext =
     getContextDescriptor(dyn_cast<Decl>(D->getDeclContext()));
-  llvm::DIGlobalVariable GV =
-      DBuilder.createStaticVariable(DContext, DeclName, LinkageName, Unit,
-                                    LineNo, getOrCreateType(T, Unit),
-                                    Var->hasInternalLinkage(), Var,
-                                    getStaticDataMemberDeclaration(D));
+  llvm::DIGlobalVariable GV = DBuilder.createStaticVariable(
+      DContext, DeclName, LinkageName, Unit, LineNo, getOrCreateType(T, Unit),
+      Var->hasInternalLinkage(), Var, getStaticDataMemberDeclarationOrNull(D));
   DeclCache.insert(std::make_pair(D->getCanonicalDecl(), llvm::WeakVH(GV)));
 }
 
@@ -3092,10 +3095,9 @@ void CGDebugInfo::EmitGlobalVariable(const ValueDecl *VD,
   // Do not use DIGlobalVariable for enums.
   if (Ty.getTag() == llvm::dwarf::DW_TAG_enumeration_type)
     return;
-  llvm::DIGlobalVariable GV =
-      DBuilder.createStaticVariable(Unit, Name, Name, Unit,
-                                    getLineNumber(VD->getLocation()), Ty, true,
-                                    Init, getStaticDataMemberDeclaration(VD));
+  llvm::DIGlobalVariable GV = DBuilder.createStaticVariable(
+      Unit, Name, Name, Unit, getLineNumber(VD->getLocation()), Ty, true, Init,
+      getStaticDataMemberDeclarationOrNull(cast<VarDecl>(VD)));
   DeclCache.insert(std::make_pair(VD->getCanonicalDecl(), llvm::WeakVH(GV)));
 }
 
