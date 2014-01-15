@@ -1388,7 +1388,10 @@ def warn_sometimes_uninit_var : Warning<
   "%select{'%3' condition is %select{true|false}4|"
   "'%3' loop %select{is entered|exits because its condition is false}4|"
   "'%3' loop %select{condition is true|exits because its condition is false}4|"
-  "switch %3 is taken}2">, InGroup<UninitializedSometimes>, DefaultIgnore;
+  "switch %3 is taken|"
+  "its declaration is reached|"
+  "%3 is called}2">,
+  InGroup<UninitializedSometimes>, DefaultIgnore;
 def warn_maybe_uninit_var : Warning<
   "variable %0 may be uninitialized when "
   "%select{used here|captured by block}1">,
@@ -1836,7 +1839,6 @@ def err_format_attribute_implicit_this_format_string : Error<
   "string">;
 def err_common_not_supported_cplusplus : Error<
   "common attribute is not supported in C++">;
-def warn_unknown_method_family : Warning<"unrecognized method family">;
 def err_init_method_bad_return_type : Error<
   "init methods must return an object pointer type, not %0">;
 def err_attribute_invalid_size : Error<
@@ -2202,8 +2204,6 @@ def warn_attr_on_unconsumable_class : Warning<
 def warn_return_typestate_for_unconsumable_type : Warning<
   "return state set for an unconsumable type '%0'">, InGroup<Consumed>,
   DefaultIgnore;
-def warn_unknown_consumed_state : Warning<
-  "unknown consumed analysis state '%0'">, InGroup<Consumed>, DefaultIgnore;
 def warn_return_typestate_mismatch : Warning<
   "return value not in expected state; expected '%0', observed '%1'">,
   InGroup<Consumed>, DefaultIgnore;
@@ -2317,9 +2317,9 @@ def warn_transparent_union_attribute_zero_fields : Warning<
   "transparent_union attribute ignored">,
   InGroup<IgnoredAttributes>;
 def warn_attribute_type_not_supported : Warning<
-  "'%0' attribute argument not supported: %1">,
+  "%0 attribute argument not supported: %1">,
   InGroup<IgnoredAttributes>;
-def warn_attribute_unknown_visibility : Warning<"unknown visibility '%0'">,
+def warn_attribute_unknown_visibility : Warning<"unknown visibility %0">,
   InGroup<IgnoredAttributes>;
 def warn_attribute_protected_visibility :
   Warning<"target does not support 'protected' visibility; using 'default'">,
