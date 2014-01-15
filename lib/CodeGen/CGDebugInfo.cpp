@@ -602,8 +602,10 @@ llvm::DIType CGDebugInfo::CreateType(const PointerType *Ty,
 }
 
 // Creates a forward declaration for a RecordDecl in the given context.
-llvm::DIType CGDebugInfo::createRecordFwdDecl(const RecordDecl *RD,
-                                              llvm::DIDescriptor Ctx) {
+llvm::DIType CGDebugInfo::getOrCreateRecordFwdDecl(const RecordDecl *RD,
+                                                   llvm::DIDescriptor Ctx) {
+  if (llvm::DIType T = getTypeOrNull(CGM.getContext().getRecordType(RD)))
+    return T;
   llvm::DIFile DefUnit = getOrCreateFile(RD->getLocation());
   unsigned Line = getLineNumber(RD->getLocation());
   StringRef RDName = getClassName(RD);
@@ -1401,6 +1403,26 @@ llvm::DIType CGDebugInfo::getOrCreateInterfaceType(QualType D,
   return T;
 }
 
+void CGDebugInfo::completeType(const RecordDecl *RD) {
+  if (DebugKind > CodeGenOptions::LimitedDebugInfo ||
+      !CGM.getLangOpts().CPlusPlus)
+    completeRequiredType(RD);
+}
+
+void CGDebugInfo::completeRequiredType(const RecordDecl *RD) {
+  QualType Ty = CGM.getContext().getRecordType(RD);
+  llvm::DIType T = getTypeOrNull(Ty);
+  if (!T || !T.isForwardDecl())
+    return;
+  void* TyPtr = Ty.getAsOpaquePtr();
+  if (CompletedTypeCache.count(TyPtr))
+    return;
+  llvm::DIType Res = CreateTypeDefinition(Ty->castAs<RecordType>());
+  assert(!Res.isForwardDecl());
+  CompletedTypeCache[TyPtr] = Res;
+  TypeCache[TyPtr] = Res;
+}
+
 /// CreateType - get structure or union type.
 llvm::DIType CGDebugInfo::CreateType(const RecordType *Ty, bool Declaration) {
   RecordDecl *RD = Ty->getDecl();
@@ -1413,10 +1435,15 @@ llvm::DIType CGDebugInfo::CreateType(const RecordType *Ty, bool Declaration) {
     // test/CodeGen/debug-info-records.c .
     llvm::DIDescriptor FDContext =
       getContextDescriptor(cast<Decl>(RD->getDeclContext()));
-    llvm::DIType RetTy = createRecordFwdDecl(RD, FDContext);
-    TypeCache[QualType(Ty, 0).getAsOpaquePtr()] = RetTy;
+    llvm::DIType RetTy = getOrCreateRecordFwdDecl(RD, FDContext);
     return RetTy;
   }
+
+  return CreateTypeDefinition(Ty);
+}
+
+llvm::DIType CGDebugInfo::CreateTypeDefinition(const RecordType *Ty) {
+  RecordDecl *RD = Ty->getDecl();
 
   // Get overall information about the record type for the debug info.
   llvm::DIFile DefUnit = getOrCreateFile(RD->getLocation());
@@ -1929,20 +1956,6 @@ llvm::DIType CGDebugInfo::getCompletedTypeOrNull(QualType Ty) {
   return llvm::DIType(cast_or_null<llvm::MDNode>(V));
 }
 
-void CGDebugInfo::completeFwdDecl(const RecordDecl &RD) {
-  // In limited debug info we only want to do this if the complete type was
-  // required.
-  if (DebugKind <= CodeGenOptions::LimitedDebugInfo &&
-      CGM.getLangOpts().CPlusPlus)
-    return;
-
-  QualType QTy = CGM.getContext().getRecordType(&RD);
-  llvm::DIType T = getTypeOrNull(QTy);
-
-  if (T && T.isForwardDecl())
-    getOrCreateType(QTy, getOrCreateFile(RD.getLocation()));
-}
-
 /// getCachedInterfaceTypeOrNull - Get the type from the interface
 /// cache, unless it needs to regenerated. Otherwise return null.
 llvm::Value *CGDebugInfo::getCachedInterfaceTypeOrNull(QualType Ty) {
@@ -2175,7 +2188,7 @@ llvm::DIType CGDebugInfo::CreateLimitedType(const RecordType *Ty) {
   // If this is just a forward declaration, construct an appropriately
   // marked node and just return it.
   if (!RD->getDefinition())
-    return createRecordFwdDecl(RD, RDContext);
+    return getOrCreateRecordFwdDecl(RD, RDContext);
 
   uint64_t Size = CGM.getContext().getTypeSize(Ty);
   uint64_t Align = CGM.getContext().getTypeAlign(Ty);
