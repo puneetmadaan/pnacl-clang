@@ -914,6 +914,14 @@ def err_friend_not_first_in_declaration : Error<
   "'friend' must appear first in a non-function declaration">;
 def err_using_decl_friend : Error<
   "cannot befriend target of using declaration">;
+def warn_template_qualified_friend_unsupported : Warning<
+  "dependent nested name specifier '%0' for friend class declaration is "
+  "not supported; turning off access control for %1">,
+  InGroup<UnsupportedFriend>;
+def warn_template_qualified_friend_ignored : Warning<
+  "dependent nested name specifier '%0' for friend template declaration is "
+  "not supported; ignoring this friend declaration">,
+  InGroup<UnsupportedFriend>;
   
 def err_invalid_member_in_interface : Error<
   "%select{data member |non-public member function |static member function |"
@@ -5133,10 +5141,6 @@ let CategoryName = "Lambda Issue" in {
     "cannot deduce type for lambda capture %0 from initializer list">;
 }
 
-// C++1y Generic Lambdas
-def err_glambda_not_fully_implemented : Error<
-  "unimplemented generic lambda feature: %0">;
-    
 def err_return_in_captured_stmt : Error<
   "cannot return from %0">;
 def err_capture_block_variable : Error<

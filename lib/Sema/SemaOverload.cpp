@@ -450,9 +450,9 @@ StandardConversionSequence::getNarrowingKind(ASTContext &Ctx,
   }
 }
 
-/// DebugPrint - Print this standard conversion sequence to standard
+/// dump - Print this standard conversion sequence to standard
 /// error. Useful for debugging overloading issues.
-void StandardConversionSequence::DebugPrint() const {
+void StandardConversionSequence::dump() const {
   raw_ostream &OS = llvm::errs();
   bool PrintedSomething = false;
   if (First != ICK_Identity) {
@@ -489,12 +489,12 @@ void StandardConversionSequence::DebugPrint() const {
   }
 }
 
-/// DebugPrint - Print this user-defined conversion sequence to standard
+/// dump - Print this user-defined conversion sequence to standard
 /// error. Useful for debugging overloading issues.
-void UserDefinedConversionSequence::DebugPrint() const {
+void UserDefinedConversionSequence::dump() const {
   raw_ostream &OS = llvm::errs();
   if (Before.First || Before.Second || Before.Third) {
-    Before.DebugPrint();
+    Before.dump();
     OS << " -> ";
   }
   if (ConversionFunction)
@@ -503,24 +503,24 @@ void UserDefinedConversionSequence::DebugPrint() const {
     OS << "aggregate initialization";
   if (After.First || After.Second || After.Third) {
     OS << " -> ";
-    After.DebugPrint();
+    After.dump();
   }
 }
 
-/// DebugPrint - Print this implicit conversion sequence to standard
+/// dump - Print this implicit conversion sequence to standard
 /// error. Useful for debugging overloading issues.
-void ImplicitConversionSequence::DebugPrint() const {
+void ImplicitConversionSequence::dump() const {
   raw_ostream &OS = llvm::errs();
   if (isStdInitializerListElement())
     OS << "Worst std::initializer_list element conversion: ";
   switch (ConversionKind) {
   case StandardConversion:
     OS << "Standard conversion: ";
-    Standard.DebugPrint();
+    Standard.dump();
     break;
   case UserDefinedConversion:
     OS << "User-defined conversion: ";
-    UserDefined.DebugPrint();
+    UserDefined.dump();
     break;
   case EllipsisConversion:
     OS << "Ellipsis conversion";
@@ -2790,6 +2790,18 @@ bool Sema::CheckMemberPointerConversion(Expr *From, QualType ToType,
   return false;
 }
 
+/// Determine whether the lifetime conversion between the two given
+/// qualifiers sets is nontrivial.
+static bool isNonTrivialObjCLifetimeConversion(Qualifiers FromQuals,
+                                               Qualifiers ToQuals) {
+  // Converting anything to const __unsafe_unretained is trivial.
+  if (ToQuals.hasConst() && 
+      ToQuals.getObjCLifetime() == Qualifiers::OCL_ExplicitNone)
+    return false;
+
+  return true;
+}
+
 /// IsQualificationConversion - Determines whether the conversion from
 /// an rvalue of type FromType to ToType is a qualification conversion
 /// (C++ 4.4).
@@ -2831,7 +2843,8 @@ Sema::IsQualificationConversion(QualType FromType, QualType ToType,
     if (FromQuals.getObjCLifetime() != ToQuals.getObjCLifetime() &&
         UnwrappedAnyPointer) {
       if (ToQuals.compatiblyIncludesObjCLifetime(FromQuals)) {
-        ObjCLifetimeConversion = true;
+        if (isNonTrivialObjCLifetimeConversion(FromQuals, ToQuals))
+          ObjCLifetimeConversion = true;
         FromQuals.removeObjCLifetime();
         ToQuals.removeObjCLifetime();
       } else {
@@ -3006,7 +3019,7 @@ IsUserDefinedConversion(Sema &S, Expr *From, QualType ToType,
                         OverloadCandidateSet &CandidateSet,
                         bool AllowExplicit,
                         bool AllowObjCConversionOnExplicit) {
-  assert(!AllowExplicit || !AllowObjCConversionOnExplicit);
+  assert(AllowExplicit || !AllowObjCConversionOnExplicit);
 
   // Whether we will only visit constructors.
   bool ConstructorsOnly = false;
@@ -3996,9 +4009,11 @@ Sema::CompareReferenceRelationship(SourceLocation Loc,
   // space 2.
   if (T1Quals.getObjCLifetime() != T2Quals.getObjCLifetime() &&
       T1Quals.compatiblyIncludesObjCLifetime(T2Quals)) {
+    if (isNonTrivialObjCLifetimeConversion(T2Quals, T1Quals))
+      ObjCLifetimeConversion = true;
+
     T1Quals.removeObjCLifetime();
     T2Quals.removeObjCLifetime();    
-    ObjCLifetimeConversion = true;
   }
     
   if (T1Quals == T2Quals)
