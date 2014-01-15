@@ -1695,7 +1695,6 @@ std::string CompilerInvocation::getModuleHash() const {
                       hsOpts.UseStandardCXXIncludes,
                       hsOpts.UseLibcxx);
 
-#ifdef __APPLE__
   // Darwin-specific hack: if we have a sysroot, use the contents and
   // modification time of
   //   $sysroot/System/Library/CoreServices/SystemVersion.plist
@@ -1716,7 +1715,6 @@ std::string CompilerInvocation::getModuleHash() const {
         code = hash_combine(code, statBuf.st_mtime);
     }
   }
-#endif
 
   return llvm::APInt(64, code).toString(36, /*Signed=*/false);
 }
