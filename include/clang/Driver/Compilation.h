@@ -16,11 +16,19 @@
 #include "llvm/Support/Path.h"
 #include "llvm/Support/PathV1.h"
 
+namespace llvm {
+namespace opt {
+  class DerivedArgList;
+  class InputArgList;
+}
+}
+
 namespace clang {
 namespace driver {
-  class DerivedArgList;
+  // FIXME: Remove this using directive and qualify class usage below.
+  using namespace llvm::opt;
+
   class Driver;
-  class InputArgList;
   class JobAction;
   class JobList;
   class ToolChain;
@@ -63,7 +71,7 @@ class Compilation {
   ArgStringMap FailureResultFiles;
 
   /// Redirection for stdout, stderr, etc.
-  const llvm::sys::Path **Redirects;
+  const StringRef **Redirects;
 
 public:
   Compilation(const Driver &D, const ToolChain &DefaultToolChain,
