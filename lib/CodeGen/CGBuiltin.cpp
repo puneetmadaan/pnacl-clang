@@ -2042,9 +2042,7 @@ Value *CodeGenFunction::EmitARMBuiltinExpr(unsigned BuiltinID,
     Function *F = CGM.getIntrinsic(Intrinsic::arm_strexd);
     llvm::Type *STy = llvm::StructType::get(Int32Ty, Int32Ty, NULL);
 
-    Value *One = llvm::ConstantInt::get(Int32Ty, 1);
-    Value *Tmp = Builder.CreateAlloca(ConvertType(E->getArg(0)->getType()),
-                                      One);
+    Value *Tmp = CreateMemTemp(E->getArg(0)->getType());
     Value *Val = EmitScalarExpr(E->getArg(0));
     Builder.CreateStore(Val, Tmp);
 
@@ -2951,19 +2949,15 @@ Value *CodeGenFunction::EmitX86BuiltinExpr(unsigned BuiltinID,
     return Builder.CreateExtractElement(Ops[0],
                                   llvm::ConstantInt::get(Ops[1]->getType(), 0));
   case X86::BI__builtin_ia32_ldmxcsr: {
-    llvm::Type *PtrTy = Int8PtrTy;
-    Value *One = llvm::ConstantInt::get(Int32Ty, 1);
-    Value *Tmp = Builder.CreateAlloca(Int32Ty, One);
+    Value *Tmp = CreateMemTemp(E->getArg(0)->getType());
     Builder.CreateStore(Ops[0], Tmp);
     return Builder.CreateCall(CGM.getIntrinsic(Intrinsic::x86_sse_ldmxcsr),
-                              Builder.CreateBitCast(Tmp, PtrTy));
+                              Builder.CreateBitCast(Tmp, Int8PtrTy));
   }
   case X86::BI__builtin_ia32_stmxcsr: {
-    llvm::Type *PtrTy = Int8PtrTy;
-    Value *One = llvm::ConstantInt::get(Int32Ty, 1);
-    Value *Tmp = Builder.CreateAlloca(Int32Ty, One);
+    Value *Tmp = CreateMemTemp(E->getArg(0)->getType());
     Builder.CreateCall(CGM.getIntrinsic(Intrinsic::x86_sse_stmxcsr),
-                       Builder.CreateBitCast(Tmp, PtrTy));
+                       Builder.CreateBitCast(Tmp, Int8PtrTy));
     return Builder.CreateLoad(Tmp, "stmxcsr");
   }
   case X86::BI__builtin_ia32_storehps:
@@ -3154,13 +3148,10 @@ Value *CodeGenFunction::EmitX86BuiltinExpr(unsigned BuiltinID,
   }
   // AVX2 broadcast
   case X86::BI__builtin_ia32_vbroadcastsi256: {
-    llvm::Type *VecTy = llvm::VectorType::get(Int64Ty, 2);
-    llvm::Type *PtrTy = Int8PtrTy;
-    Value *One = llvm::ConstantInt::get(Int32Ty, 1);
-    Value *Tmp = Builder.CreateAlloca(VecTy, One);
-    Builder.CreateStore(Ops[0], Tmp);
-    return Builder.CreateCall(CGM.getIntrinsic(Intrinsic::x86_avx2_vbroadcasti128),
-                              Builder.CreateBitCast(Tmp, PtrTy));
+    Value *VecTmp = CreateMemTemp(E->getArg(0)->getType());
+    Builder.CreateStore(Ops[0], VecTmp);
+    Value *F = CGM.getIntrinsic(Intrinsic::x86_avx2_vbroadcasti128);
+    return Builder.CreateCall(F, Builder.CreateBitCast(VecTmp, Int8PtrTy));
   }
   }
 }
