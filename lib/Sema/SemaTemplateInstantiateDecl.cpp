@@ -3161,7 +3161,7 @@ void Sema::InstantiateFunctionDefinition(SourceLocation PointOfInstantiation,
   if (Function->getTemplateSpecializationKind()
         == TSK_ExplicitInstantiationDeclaration &&
       !PatternDecl->isInlined() &&
-      !PatternDecl->getResultType()->isUndeducedType())
+      !PatternDecl->getResultType()->getContainedAutoType())
     return;
 
   if (PatternDecl->isInlined())
@@ -3365,7 +3365,7 @@ void Sema::BuildVariableInstantiation(
              OldVar->hasLinkage())
     LookupQualifiedName(Previous, NewVar->getDeclContext(), false);
 
-  CheckVariableDeclaration(NewVar, Previous);
+  CheckVariableDeclaration(NewVar, Previous, ForVarTemplate);
 
   if (OldVar->isOutOfLine()) {
     OldVar->getLexicalDeclContext()->addDecl(NewVar);

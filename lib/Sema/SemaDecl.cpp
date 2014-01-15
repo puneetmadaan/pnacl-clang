@@ -2459,7 +2459,7 @@ bool Sema::MergeFunctionDecl(FunctionDecl *New, Decl *OldD, Scope *S,
     //        cannot be overloaded.
 
     // Go back to the type source info to compare the declared return types,
-    // per C++1y [dcl.type.auto]p??:
+    // per C++1y [dcl.type.auto]p13:
     //   Redeclarations or specializations of a function or function template
     //   with a declared return type that uses a placeholder type shall also
     //   use that placeholder, not a deduced type.
@@ -2494,9 +2494,14 @@ bool Sema::MergeFunctionDecl(FunctionDecl *New, Decl *OldD, Scope *S,
       // defined, copy the deduced value from the old declaration.
       AutoType *OldAT = Old->getResultType()->getContainedAutoType();
       if (OldAT && OldAT->isDeduced()) {
-        New->setType(SubstAutoType(New->getType(), OldAT->getDeducedType()));
+        New->setType(
+            SubstAutoType(New->getType(),
+                          OldAT->isDependentType() ? Context.DependentTy
+                                                   : OldAT->getDeducedType()));
         NewQType = Context.getCanonicalType(
-            SubstAutoType(NewQType, OldAT->getDeducedType()));
+            SubstAutoType(NewQType,
+                          OldAT->isDependentType() ? Context.DependentTy
+                                                   : OldAT->getDeducedType()));
       }
     }
 
@@ -2920,15 +2925,21 @@ void Sema::MergeVarDeclTypes(VarDecl *New, VarDecl *Old,
 /// definitions here, since the initializer hasn't been attached.
 ///
 void Sema::MergeVarDecl(VarDecl *New, LookupResult &Previous,
-                        bool MergeTypeWithPrevious) {
+                        bool IsVariableTemplate, bool MergeTypeWithPrevious) {
   // If the new decl is already invalid, don't do any other checking.
   if (New->isInvalidDecl())
     return;
 
-  // Verify the old decl was also a variable.
+  // Verify the old decl was also a variable or variable template.
   VarDecl *Old = 0;
-  if (!Previous.isSingleResult() ||
-      !(Old = dyn_cast<VarDecl>(Previous.getFoundDecl()))) {
+  if (Previous.isSingleResult() &&
+      (Old = dyn_cast<VarDecl>(Previous.getFoundDecl()))) {
+    if (IsVariableTemplate)
+      Old = Old->getDescribedVarTemplate() ? Old : 0;
+    else
+      Old = Old->getDescribedVarTemplate() ? 0 : Old;
+  }
+  if (!Old) {
     Diag(New->getLocation(), diag::err_redefinition_different_kind)
       << New->getDeclName();
     Diag(Previous.getRepresentativeDecl()->getLocation(),
@@ -4919,6 +4930,7 @@ Sema::ActOnVariableDeclarator(Scope *S, Declarator &D, DeclContext *DC,
   bool IsExplicitSpecialization = false;
   bool IsVariableTemplateSpecialization = false;
   bool IsPartialSpecialization = false;
+  bool IsVariableTemplate = false;
   bool Invalid = false; // TODO: Can we remove this (error-prone)?
   TemplateParameterList *TemplateParams = 0;
   VarTemplateDecl *PrevVarTemplate = 0;
@@ -5019,6 +5031,7 @@ Sema::ActOnVariableDeclarator(Scope *S, Declarator &D, DeclContext *DC,
 
         } else { // if (TemplateParams->size() > 0)
           // This is a template declaration.
+          IsVariableTemplate = true;
 
           // Check that we can declare a template here.
           if (CheckTemplateDeclScope(S, TemplateParams))
@@ -5310,9 +5323,11 @@ Sema::ActOnVariableDeclarator(Scope *S, Declarator &D, DeclContext *DC,
         LookupResult PrevDecl(*this, GetNameForDeclarator(D),
                               LookupOrdinaryName, ForRedeclaration);
         PrevDecl.addDecl(PrevVarTemplate->getTemplatedDecl());
-        D.setRedeclaration(CheckVariableDeclaration(NewVD, PrevDecl));
+        D.setRedeclaration(
+            CheckVariableDeclaration(NewVD, PrevDecl, IsVariableTemplate));
       } else
-        D.setRedeclaration(CheckVariableDeclaration(NewVD, Previous));
+        D.setRedeclaration(
+            CheckVariableDeclaration(NewVD, Previous, IsVariableTemplate));
     }
 
     // This is an explicit specialization of a static data member. Check it.
@@ -5340,8 +5355,8 @@ Sema::ActOnVariableDeclarator(Scope *S, Declarator &D, DeclContext *DC,
     }
   }
 
-  // If this is not a variable template, return it now
-  if (!TemplateParams || IsVariableTemplateSpecialization)
+  // If this is not a variable template, return it now.
+  if (!IsVariableTemplate)
     return NewVD;
 
   // If this is supposed to be a variable template, create it as such.
@@ -5745,7 +5760,8 @@ void Sema::CheckVariableDeclarationType(VarDecl *NewVD) {
 ///
 /// Returns true if the variable declaration is a redeclaration.
 bool Sema::CheckVariableDeclaration(VarDecl *NewVD,
-                                    LookupResult &Previous) {
+                                    LookupResult &Previous,
+                                    bool IsVariableTemplate) {
   CheckVariableDeclarationType(NewVD);
 
   // If the decl is already known invalid, don't check it.
@@ -5795,7 +5811,7 @@ bool Sema::CheckVariableDeclaration(VarDecl *NewVD,
   filterNonConflictingPreviousDecls(Context, NewVD, Previous);
 
   if (!Previous.empty()) {
-    MergeVarDecl(NewVD, Previous, MergeTypeWithPrevious);
+    MergeVarDecl(NewVD, Previous, IsVariableTemplate, MergeTypeWithPrevious);
     return true;
   }
   return false;
@@ -6675,6 +6691,20 @@ Sema::ActOnFunctionDeclarator(Scope *S, Declarator &D, DeclContext *DC,
       if (getLangOpts().CPlusPlus1y &&
           NewFD->getResultType()->isUndeducedType())
         Diag(D.getDeclSpec().getVirtualSpecLoc(), diag::err_auto_fn_virtual);
+    }
+
+    if (getLangOpts().CPlusPlus1y && NewFD->isDependentContext() &&
+        NewFD->getResultType()->isUndeducedType()) {
+      // If the function template is referenced directly (for instance, as a
+      // member of the current instantiation), pretend it has a dependent type.
+      // This is not really justified by the standard, but is the only sane
+      // thing to do.
+      const FunctionProtoType *FPT =
+          NewFD->getType()->castAs<FunctionProtoType>();
+      QualType Result = SubstAutoType(FPT->getResultType(),
+                                       Context.DependentTy);
+      NewFD->setType(Context.getFunctionType(Result, FPT->getArgTypes(),
+                                             FPT->getExtProtoInfo()));
     }
 
     // C++ [dcl.fct.spec]p3:
