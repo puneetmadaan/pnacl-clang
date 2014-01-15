@@ -507,6 +507,8 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
     }
   }
 
+  Opts.DependentLibraries = Args.getAllArgValues(OPT_dependent_lib);
+
   return Success;
 }
 
