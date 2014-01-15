@@ -3309,11 +3309,11 @@ static bool CheckAnonMemberRedeclaration(Sema &SemaRef,
 /// This routine is recursive, injecting the names of nested anonymous
 /// structs/unions into the owning context and scope as well.
 static bool InjectAnonymousStructOrUnionMembers(Sema &SemaRef, Scope *S,
-                                                DeclContext *Owner,
-                                                RecordDecl *AnonRecord,
-                                                AccessSpecifier AS,
-                              SmallVector<NamedDecl*, 2> &Chaining,
-                                                      bool MSAnonStruct) {
+                                         DeclContext *Owner,
+                                         RecordDecl *AnonRecord,
+                                         AccessSpecifier AS,
+                                         SmallVectorImpl<NamedDecl *> &Chaining,
+                                         bool MSAnonStruct) {
   unsigned diagKind
     = AnonRecord->isUnion() ? diag::err_anonymous_union_member_redecl
                             : diag::err_anonymous_struct_member_redecl;
@@ -5810,7 +5810,7 @@ static NamedDecl* DiagnoseInvalidRedeclaration(
   if (CXXMethodDecl *NewMD = dyn_cast<CXXMethodDecl>(NewFD))
     NewFDisConst = NewMD->isConst();
 
-  for (SmallVector<std::pair<FunctionDecl *, unsigned>, 1>::iterator
+  for (SmallVectorImpl<std::pair<FunctionDecl *, unsigned> >::iterator
        NearMatch = NearMatches.begin(), NearMatchEnd = NearMatches.end();
        NearMatch != NearMatchEnd; ++NearMatch) {
     FunctionDecl *FD = NearMatch->first;

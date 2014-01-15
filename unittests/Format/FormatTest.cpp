@@ -2878,6 +2878,34 @@ TEST_F(FormatTest, AlignsStringLiterals) {
                "  \"jkl\");");
 }
 
+TEST_F(FormatTest, AlwaysBreakBeforeMultilineStrings) {
+  FormatStyle NoBreak = getLLVMStyle();
+  NoBreak.AlwaysBreakBeforeMultilineStrings = false;
+  FormatStyle Break = getLLVMStyle();
+  Break.AlwaysBreakBeforeMultilineStrings = true;
+  EXPECT_EQ("aaaa = \"bbbb\"\n"
+            "       \"cccc\";",
+            format("aaaa=\"bbbb\" \"cccc\";", NoBreak));
+  EXPECT_EQ("aaaa =\n"
+            "    \"bbbb\"\n"
+            "    \"cccc\";",
+            format("aaaa=\"bbbb\" \"cccc\";", Break));
+  EXPECT_EQ("aaaa(\"bbbb\"\n"
+            "     \"cccc\");",
+            format("aaaa(\"bbbb\" \"cccc\");", NoBreak));
+  EXPECT_EQ("aaaa(\n"
+            "    \"bbbb\"\n"
+            "    \"cccc\");",
+            format("aaaa(\"bbbb\" \"cccc\");", Break));
+  EXPECT_EQ("aaaa(qqq, \"bbbb\"\n"
+            "          \"cccc\");",
+            format("aaaa(qqq, \"bbbb\" \"cccc\");", NoBreak));
+  EXPECT_EQ("aaaa(qqq,\n"
+            "     \"bbbb\"\n"
+            "     \"cccc\");",
+            format("aaaa(qqq, \"bbbb\" \"cccc\");", Break));
+}
+
 TEST_F(FormatTest, AlignsPipes) {
   verifyFormat(
       "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
@@ -3055,6 +3083,15 @@ TEST_F(FormatTest, WrapsTemplateDeclarations) {
   verifyFormat("void aaaaaaaaaaaaaaaaaaa<aaaaaaaaaaaaaaaaaaaaaaaaaaaaa,\n"
                "                         bbbbbbbbbbbbbbbbbbbbbbbbbbbb>(\n"
                "    ccccccccccccccccccccccccccccccccccccccccccccccc);");
+  verifyFormat(
+      "aaaaaaaaaaaaa<aaaaaaaaaa, aaaaaaaaaaa,\n"
+      "              aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,\n"
+      "              aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa> *aaaa =\n"
+      "    new aaaaaaaaaaaaa<aaaaaaaaaa, aaaaaaaaaaa,\n"
+      "                      aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,\n"
+      "                      aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa>(\n"
+      "        bbbbbbbbbbbbbbbbbbbbbbbb);",
+      getLLVMStyleWithColumns(72));
 }
 
 TEST_F(FormatTest, WrapsAtNestedNameSpecifiers) {
@@ -3341,8 +3378,12 @@ TEST_F(FormatTest, UnderstandsUsesOfStarAndAmp) {
 
   verifyIndependentOfContext("A = new SomeType *[Length];");
   verifyIndependentOfContext("A = new SomeType *[Length]();");
+  verifyIndependentOfContext("T **t = new T *;");
+  verifyIndependentOfContext("T **t = new T *();");
   verifyGoogleFormat("A = new SomeType* [Length]();");
   verifyGoogleFormat("A = new SomeType* [Length];");
+  verifyGoogleFormat("T** t = new T*;");
+  verifyGoogleFormat("T** t = new T*();");
 
   FormatStyle PointerLeft = getLLVMStyle();
   PointerLeft.PointerBindsToType = true;
@@ -3457,6 +3498,14 @@ TEST_F(FormatTest, FormatsCasts) {
   verifyFormat("virtual void foo(int *a, char *) const;");
   verifyFormat("int a = sizeof(int *) + b;");
   verifyFormat("int a = alignof(int *) + b;", getGoogleStyle());
+
+  verifyFormat("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa *foo = (aaaaaaaaaaaaaaaaa *)\n"
+               "    bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb;");
+  verifyFormat(
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa[\n"
+      "    bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb] =\n"
+      "    (*cccccccccccccccc)[\n"
+      "        dddddddddddddddddddddddddddddddddddddddddddddddddddddddd];");
 }
 
 TEST_F(FormatTest, FormatsFunctionTypes) {
