@@ -83,15 +83,16 @@ class AnnotatedLine;
 struct FormatToken {
   FormatToken()
       : NewlinesBefore(0), HasUnescapedNewline(false), LastNewlineOffset(0),
-        CodePointCount(0), CodePointsInFirstLine(0), CodePointsInLastLine(0),
+        CodePointCount(0), FirstLineColumnWidth(0), LastLineColumnWidth(0),
         IsFirst(false), MustBreakBefore(false), IsUnterminatedLiteral(false),
         BlockKind(BK_Unknown), Type(TT_Unknown), SpacesRequiredBefore(0),
         CanBreakBefore(false), ClosesTemplateDeclaration(false),
         ParameterCount(0), PackingKind(PPK_Inconclusive), TotalLength(0),
         UnbreakableTailLength(0), BindingStrength(0), SplitPenalty(0),
-        LongestObjCSelectorName(0), FakeRParens(0), LastInChainOfCalls(false),
-        PartOfMultiVariableDeclStmt(false), MatchingParen(NULL), Previous(NULL),
-        Next(NULL) {}
+        LongestObjCSelectorName(0), FakeRParens(0),
+        StartsBinaryExpression(false), EndsBinaryExpression(false),
+        LastInChainOfCalls(false), PartOfMultiVariableDeclStmt(false),
+        MatchingParen(NULL), Previous(NULL), Next(NULL) {}
 
   /// \brief The \c Token.
   Token Tok;
@@ -120,15 +121,15 @@ struct FormatToken {
   /// \brief Contains the number of code points in the first line of a
   /// multi-line string literal or comment. Zero if there's no newline in the
   /// token.
-  unsigned CodePointsInFirstLine;
+  unsigned FirstLineColumnWidth;
 
   /// \brief Contains the number of code points in the last line of a
   /// multi-line string literal or comment. Can be zero for line comments.
-  unsigned CodePointsInLastLine;
+  unsigned LastLineColumnWidth;
 
   /// \brief Returns \c true if the token text contains newlines (escaped or
   /// not).
-  bool isMultiline() const { return CodePointsInFirstLine != 0; }
+  bool isMultiline() const { return FirstLineColumnWidth != 0; }
 
   /// \brief Indicates that this is the first token.
   bool IsFirst;
@@ -220,6 +221,12 @@ struct FormatToken {
   SmallVector<prec::Level, 4> FakeLParens;
   /// \brief Insert this many fake ) after this token for correct indentation.
   unsigned FakeRParens;
+
+  /// \brief \c true if this token starts a binary expression, i.e. has at least
+  /// one fake l_paren with a precedence greater than prec::Unknown.
+  bool StartsBinaryExpression;
+  /// \brief \c true if this token ends a binary expression.
+  bool EndsBinaryExpression;
 
   /// \brief Is this the last "." or "->" in a builder-type call?
   bool LastInChainOfCalls;

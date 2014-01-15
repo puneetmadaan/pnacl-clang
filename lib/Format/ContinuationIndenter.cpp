@@ -38,15 +38,6 @@ static unsigned getLengthToMatchingParen(const FormatToken &Tok) {
   return End->TotalLength - Tok.TotalLength + 1;
 }
 
-// Returns \c true if \c Tok starts a binary expression.
-static bool startsBinaryExpression(const FormatToken &Tok) {
-  for (unsigned i = 0, e = Tok.FakeLParens.size(); i != e; ++i) {
-    if (Tok.FakeLParens[i] > prec::Unknown)
-      return true;
-  }
-  return false;
-}
-
 // Returns \c true if \c Tok is the "." or "->" of a call and starts the next
 // segment of a builder type call.
 static bool startsSegmentOfBuilderTypeCall(const FormatToken &Tok) {
@@ -63,7 +54,8 @@ ContinuationIndenter::ContinuationIndenter(const FormatStyle &Style,
       BinPackInconclusiveFunctions(BinPackInconclusiveFunctions) {}
 
 LineState ContinuationIndenter::getInitialState(unsigned FirstIndent,
-                                                const AnnotatedLine *Line) {
+                                                const AnnotatedLine *Line,
+                                                bool DryRun) {
   LineState State;
   State.FirstIndent = FirstIndent;
   State.Column = FirstIndent;
@@ -80,8 +72,7 @@ LineState ContinuationIndenter::getInitialState(unsigned FirstIndent,
   State.IgnoreStackForComparison = false;
 
   // The first token has already been indented and thus consumed.
-  moveStateToNextToken(State, /*DryRun=*/false,
-                       /*Newline=*/false);
+  moveStateToNextToken(State, DryRun, /*Newline=*/false);
   return State;
 }
 
@@ -156,7 +147,7 @@ bool ContinuationIndenter::mustBreak(const LineState &State) {
                         Previous.Previous &&
                         Previous.Previous->Type != TT_BinaryOperator; // For >>.
     bool LHSIsBinaryExpr =
-        Previous.Previous && Previous.Previous->FakeRParens > 0;
+        Previous.Previous && Previous.Previous->EndsBinaryExpression;
     if (Previous.Type == TT_BinaryOperator &&
         (!IsComparison || LHSIsBinaryExpr) &&
         Current.Type != TT_BinaryOperator && // For >>.
@@ -394,7 +385,7 @@ unsigned ContinuationIndenter::addTokenToState(LineState &State, bool Newline,
               Previous.Type == TT_UnaryOperator ||
               Previous.Type == TT_CtorInitializerColon) &&
              (Previous.getPrecedence() != prec::Assignment ||
-              startsBinaryExpression(Current)))
+              Current.StartsBinaryExpression))
       // Always indent relative to the RHS of the expression unless this is a
       // simple assignment without binary expression on the RHS. Also indent
       // relative to unary operators and the colons of constructor initializers.
@@ -455,7 +446,7 @@ unsigned ContinuationIndenter::moveStateToNextToken(LineState &State,
   }
 
   // If return returns a binary expression, align after it.
-  if (Current.is(tok::kw_return) && startsBinaryExpression(Current))
+  if (Current.is(tok::kw_return) && Current.StartsBinaryExpression)
     State.Stack.back().LastSpace = State.Column + 7;
 
   // In ObjC method declaration we align on the ":" of parameters, but we need
@@ -511,6 +502,21 @@ unsigned ContinuationIndenter::moveStateToNextToken(LineState &State,
     bool AvoidBinPacking;
     if (Current.is(tok::l_brace)) {
       if (Current.MatchingParen && Current.BlockKind == BK_Block) {
+        // If this is an l_brace starting a nested block, we pretend (wrt. to
+        // indentation) that we already consumed the corresponding r_brace.
+        // Thus, we remove all ParenStates caused bake fake parentheses that end
+        // at the r_brace. The net effect of this is that we don't indent
+        // relative to the l_brace, if the nested block is the last parameter of
+        // a function. For example, this formats:
+        //
+        //   SomeFunction(a, [] {
+        //     f();  // break
+        //   });
+        //
+        // instead of:
+        //   SomeFunction(a, [] {
+        //                        f();  // break
+        //                      });
         for (unsigned i = 0; i != Current.MatchingParen->FakeRParens; ++i)
           State.Stack.pop_back();
         NewIndent = State.Stack.back().LastSpace;
@@ -565,6 +571,8 @@ unsigned ContinuationIndenter::moveStateToNextToken(LineState &State,
   // Remove scopes created by fake parenthesis.
   if (Current.isNot(tok::r_brace) ||
       (Current.MatchingParen && Current.MatchingParen->BlockKind != BK_Block)) {
+    // Don't remove FakeRParens attached to r_braces that surround nested blocks
+    // as they will have been removed early (see above).
     for (unsigned i = 0, e = Current.FakeRParens; i != e; ++i) {
       unsigned VariablePos = State.Stack.back().VariablePos;
       State.Stack.pop_back();
@@ -606,10 +614,10 @@ ContinuationIndenter::addMultilineStringLiteral(const FormatToken &Current,
     State.Stack[i].BreakBeforeParameter = true;
 
   unsigned ColumnsUsed =
-      State.Column - Current.CodePointCount + Current.CodePointsInFirstLine;
+      State.Column - Current.CodePointCount + Current.FirstLineColumnWidth;
   // We can only affect layout of the first and the last line, so the penalty
   // for all other lines is constant, and we ignore it.
-  State.Column = Current.CodePointsInLastLine;
+  State.Column = Current.LastLineColumnWidth;
 
   if (ColumnsUsed > getColumnLimit(State))
     return Style.PenaltyExcessCharacter * (ColumnsUsed - getColumnLimit(State));
@@ -642,14 +650,14 @@ unsigned ContinuationIndenter::breakProtrudingToken(const FormatToken &Current,
       return 0;
 
     Token.reset(new BreakableStringLiteral(
-        Current, StartColumn, State.Line->InPPDirective, Encoding));
+        Current, StartColumn, State.Line->InPPDirective, Encoding, Style));
   } else if (Current.Type == TT_BlockComment && Current.isTrailingComment()) {
     unsigned OriginalStartColumn =
         SourceMgr.getSpellingColumnNumber(Current.getStartOfNonWhitespace()) -
         1;
     Token.reset(new BreakableBlockComment(
-        Style, Current, StartColumn, OriginalStartColumn, !Current.Previous,
-        State.Line->InPPDirective, Encoding));
+        Current, StartColumn, OriginalStartColumn, !Current.Previous,
+        State.Line->InPPDirective, Encoding, Style));
   } else if (Current.Type == TT_LineComment &&
              (Current.Previous == NULL ||
               Current.Previous->Type != TT_ImplicitStringLiteral)) {
@@ -661,12 +669,12 @@ unsigned ContinuationIndenter::breakProtrudingToken(const FormatToken &Current,
     // leading whitespace in consecutive lines when changing indentation of
     // the first line similar to what we do with block comments.
     if (Current.isMultiline()) {
-      State.Column = StartColumn + Current.CodePointsInFirstLine;
+      State.Column = StartColumn + Current.FirstLineColumnWidth;
       return 0;
     }
 
-    Token.reset(new BreakableLineComment(Current, StartColumn,
-                                         State.Line->InPPDirective, Encoding));
+    Token.reset(new BreakableLineComment(
+        Current, StartColumn, State.Line->InPPDirective, Encoding, Style));
   } else {
     return 0;
   }
