@@ -422,11 +422,6 @@ Parser::~Parser() {
   for (unsigned i = 0, e = NumCachedScopes; i != e; ++i)
     delete ScopeCache[i];
 
-  // Free LateParsedTemplatedFunction nodes.
-  for (LateParsedTemplateMapT::iterator it = LateParsedTemplateMap.begin();
-      it != LateParsedTemplateMap.end(); ++it)
-    delete it->second;
-
   // Remove the pragma handlers we installed.
   PP.RemovePragmaHandler(AlignHandler.get());
   AlignHandler.reset();
@@ -1008,22 +1003,18 @@ Decl *Parser::ParseFunctionDefinition(ParsingDeclarator &D,
     D.complete(DP);
     D.getMutableDeclSpec().abort();
 
-    if (DP) {
-      LateParsedTemplatedFunction *LPT = new LateParsedTemplatedFunction(DP);
+    CachedTokens Toks;
+    LexTemplateFunctionForLateParsing(Toks);
 
+    if (DP) {
       FunctionDecl *FnD = 0;
       if (FunctionTemplateDecl *FunTmpl = dyn_cast<FunctionTemplateDecl>(DP))
         FnD = FunTmpl->getTemplatedDecl();
       else
         FnD = cast<FunctionDecl>(DP);
-      Actions.CheckForFunctionRedefinition(FnD);
 
-      LateParsedTemplateMap[FnD] = LPT;
-      Actions.MarkAsLateParsedTemplate(FnD);
-      LexTemplateFunctionForLateParsing(LPT->Toks);
-    } else {
-      CachedTokens Toks;
-      LexTemplateFunctionForLateParsing(Toks);
+      Actions.CheckForFunctionRedefinition(FnD);
+      Actions.MarkAsLateParsedTemplate(FnD, DP, Toks);
     }
     return DP;
   }
@@ -1437,8 +1428,9 @@ Parser::TryAnnotateName(bool IsAddressOfOperand,
       return ANK_TemplateName;
     }
     // Fall through.
+  case Sema::NC_VarTemplate:
   case Sema::NC_FunctionTemplate: {
-    // We have a type or function template followed by '<'.
+    // We have a type, variable or function template followed by '<'.
     ConsumeToken();
     UnqualifiedId Id;
     Id.setIdentifier(Name, NameLoc);
@@ -1653,7 +1645,8 @@ bool Parser::TryAnnotateTypeOrScopeTokenAfterScopeSpec(bool EnteringContext,
       // annotation token to a type annotation token now.
       AnnotateTemplateIdTokenAsType();
       return false;
-    }
+    } else if (TemplateId->Kind == TNK_Var_template)
+      return false;
   }
 
   if (SS.isEmpty())

@@ -848,6 +848,7 @@ void ASTWriter::WriteBlockInfoBlock() {
   RECORD(OBJC_CATEGORIES);
   RECORD(MACRO_OFFSET);
   RECORD(MACRO_TABLE);
+  RECORD(LATE_PARSED_TEMPLATE);
 
   // SourceManager Block.
   BLOCK(SOURCE_MANAGER_BLOCK);
@@ -946,6 +947,9 @@ void ASTWriter::WriteBlockInfoBlock() {
   RECORD(DECL_CLASS_TEMPLATE);
   RECORD(DECL_CLASS_TEMPLATE_SPECIALIZATION);
   RECORD(DECL_CLASS_TEMPLATE_PARTIAL_SPECIALIZATION);
+  RECORD(DECL_VAR_TEMPLATE);
+  RECORD(DECL_VAR_TEMPLATE_SPECIALIZATION);
+  RECORD(DECL_VAR_TEMPLATE_PARTIAL_SPECIALIZATION);
   RECORD(DECL_FUNCTION_TEMPLATE);
   RECORD(DECL_TEMPLATE_TYPE_PARM);
   RECORD(DECL_NON_TYPE_TEMPLATE_PARM);
@@ -3670,6 +3674,30 @@ void ASTWriter::WriteMergedDecls() {
   Stream.EmitRecord(MERGED_DECLARATIONS, Record);
 }
 
+void ASTWriter::WriteLateParsedTemplates(Sema &SemaRef) {
+  Sema::LateParsedTemplateMapT &LPTMap = SemaRef.LateParsedTemplateMap;
+
+  if (LPTMap.empty())
+    return;
+
+  RecordData Record;
+  for (Sema::LateParsedTemplateMapT::iterator It = LPTMap.begin(),
+                                              ItEnd = LPTMap.end();
+       It != ItEnd; ++It) {
+    LateParsedTemplate *LPT = It->second;
+    AddDeclRef(It->first, Record);
+    AddDeclRef(LPT->D, Record);
+    Record.push_back(LPT->Toks.size());
+
+    for (CachedTokens::iterator TokIt = LPT->Toks.begin(),
+                                TokEnd = LPT->Toks.end();
+         TokIt != TokEnd; ++TokIt) {
+      AddToken(*TokIt, Record);
+    }
+  }
+  Stream.EmitRecord(LATE_PARSED_TEMPLATE, Record);
+}
+
 //===----------------------------------------------------------------------===//
 // General Serialization Routines
 //===----------------------------------------------------------------------===//
@@ -4044,6 +4072,21 @@ void ASTWriter::WriteASTCore(Sema &SemaRef,
     GetDeclRef(*I);
   }
 
+  // Make sure all decls associated with an identifier are registered for
+  // serialization.
+  for (IdentifierTable::iterator ID = PP.getIdentifierTable().begin(),
+                              IDEnd = PP.getIdentifierTable().end();
+       ID != IDEnd; ++ID) {
+    const IdentifierInfo *II = ID->second;
+    if (!Chain || !II->isFromAST() || II->hasChangedSinceDeserialization()) {
+      for (IdentifierResolver::iterator D = SemaRef.IdResolver.begin(II),
+                                     DEnd = SemaRef.IdResolver.end();
+           D != DEnd; ++D) {
+        GetDeclRef(*D);
+      }
+    }
+  }
+
   // Resolve any declaration pointers within the declaration updates block.
   ResolveDeclUpdatesBlocks();
   
@@ -4237,7 +4280,8 @@ void ASTWriter::WriteASTCore(Sema &SemaRef,
   WriteRedeclarations();
   WriteMergedDecls();
   WriteObjCCategories();
-  
+  WriteLateParsedTemplates(SemaRef);
+
   // Some simple statistics
   Record.clear();
   Record.push_back(NumStatements);
@@ -5224,6 +5268,19 @@ void ASTWriter::AddedCXXImplicitMember(const CXXRecordDecl *RD, const Decl *D) {
 
 void ASTWriter::AddedCXXTemplateSpecialization(const ClassTemplateDecl *TD,
                                      const ClassTemplateSpecializationDecl *D) {
+  // The specializations set is kept in the canonical template.
+  assert(!WritingAST && "Already writing the AST!");
+  TD = TD->getCanonicalDecl();
+  if (!(!D->isFromASTFile() && TD->isFromASTFile()))
+    return; // Not a source specialization added to a template from PCH.
+
+  UpdateRecord &Record = DeclUpdates[TD];
+  Record.push_back(UPD_CXX_ADDED_TEMPLATE_SPECIALIZATION);
+  Record.push_back(reinterpret_cast<uint64_t>(D));
+}
+
+void ASTWriter::AddedCXXTemplateSpecialization(
+    const VarTemplateDecl *TD, const VarTemplateSpecializationDecl *D) {
   // The specializations set is kept in the canonical template.
   assert(!WritingAST && "Already writing the AST!");
   TD = TD->getCanonicalDecl();
