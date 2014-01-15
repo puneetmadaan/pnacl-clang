@@ -282,6 +282,43 @@ static bool checkFunctionOrMethodArgumentIndex(Sema &S, const Decl *D,
   return true;
 }
 
+/// \brief Check if the argument \p ArgNum of \p Attr is a ASCII string literal.
+/// If not emit an error and return false. If the argument is an identifier it
+/// will emit an error with a fixit hint and treat it as if it was a string
+/// literal.
+static bool checkStringLiteralArgument(Sema &S, StringRef &Str,
+                                       const AttributeList &Attr,
+                                       unsigned ArgNum,
+                                       SourceLocation *ArgLocation = 0) {
+  // Look for identifiers. If we have one emit a hint to fix it to a literal.
+  if (Attr.isArgIdent(ArgNum)) {
+    IdentifierLoc *Loc = Attr.getArgAsIdent(ArgNum);
+    S.Diag(Loc->Loc, diag::err_attribute_argument_type)
+        << Attr.getName() << AANT_ArgumentString
+        << FixItHint::CreateInsertion(Loc->Loc, "\"")
+        << FixItHint::CreateInsertion(S.PP.getLocForEndOfToken(Loc->Loc), "\"");
+    Str = Loc->Ident->getName();
+    if (ArgLocation)
+      *ArgLocation = Loc->Loc;
+    return true;
+  }
+
+  // Now check for an actual string literal.
+  Expr *ArgExpr = Attr.getArgAsExpr(ArgNum);
+  StringLiteral *Literal = dyn_cast<StringLiteral>(ArgExpr->IgnoreParenCasts());
+  if (ArgLocation)
+    *ArgLocation = ArgExpr->getLocStart();
+
+  if (!Literal || !Literal->isAscii()) {
+    S.Diag(ArgExpr->getLocStart(), diag::err_attribute_argument_type)
+        << Attr.getName() << AANT_ArgumentString;
+    return false;
+  }
+
+  Str = Literal->getString();
+  return true;
+}
+
 ///
 /// \brief Check if passed in Decl is a field or potentially shared global var
 /// \return true if the Decl is a field or potentially shared global variable
@@ -1541,62 +1578,16 @@ static void handleWeakRefAttr(Sema &S, Decl *D, const AttributeList &Attr) {
   // FIXME: it would be good for us to keep the WeakRefAttr as-written instead
   // of transforming it into an AliasAttr.  The WeakRefAttr never uses the
   // StringRef parameter it was given anyway.
-  if (Attr.isArgExpr(0)) {
-    Expr *Arg = Attr.getArgAsExpr(0);
-    Arg = Arg->IgnoreParenCasts();
-    StringLiteral *Str = dyn_cast<StringLiteral>(Arg);
-
-    if (!Str || !Str->isAscii()) {
-      S.Diag(Attr.getLoc(), diag::err_attribute_argument_n_type)
-        << Attr.getName() << 1 << AANT_ArgumentString;
-      return;
-    }
+  StringRef Str;
+  if (Attr.getNumArgs() && checkStringLiteralArgument(S, Str, Attr, 0))
     // GCC will accept anything as the argument of weakref. Should we
     // check for an existing decl?
-    D->addAttr(::new (S.Context) AliasAttr(Attr.getRange(), S.Context,
-                                           Str->getString()));
-  }
+    D->addAttr(::new (S.Context) AliasAttr(Attr.getRange(), S.Context, Str,
+                                        Attr.getAttributeSpellingListIndex()));
 
   D->addAttr(::new (S.Context)
              WeakRefAttr(Attr.getRange(), S.Context,
                          Attr.getAttributeSpellingListIndex()));
-}
-
-/// \brief Check if the argument \p ArgNum of \p Attr is a ASCII string literal.
-/// If not emit an error and return false. If the argument is an identifier it
-/// will emit an error with a fixit hint and treat it as if it was a string
-/// literal.
-static bool checkStringLiteralArgument(Sema &S, StringRef &Str,
-                                       const AttributeList &Attr,
-                                       unsigned ArgNum,
-                                       SourceLocation *ArgLocation = 0) {
-  // Look for identifiers. If we have one emit a hint to fix it to a literal.
-  if (Attr.isArgIdent(ArgNum)) {
-    IdentifierLoc *Loc = Attr.getArgAsIdent(ArgNum);
-    S.Diag(Loc->Loc, diag::err_attribute_argument_type)
-        << Attr.getName() << AANT_ArgumentString
-        << FixItHint::CreateInsertion(Loc->Loc, "\"")
-        << FixItHint::CreateInsertion(S.PP.getLocForEndOfToken(Loc->Loc), "\"");
-    Str = Loc->Ident->getName();
-    if (ArgLocation)
-      *ArgLocation = Loc->Loc;
-    return true;
-  }
-
-  // Now check for an actual string literal.
-  Expr *ArgExpr = Attr.getArgAsExpr(ArgNum);
-  StringLiteral *Literal = dyn_cast<StringLiteral>(ArgExpr->IgnoreParenCasts());
-  if (ArgLocation)
-    *ArgLocation = ArgExpr->getLocStart();
-
-  if (!Literal || !Literal->isAscii()) {
-    S.Diag(ArgExpr->getLocStart(), diag::err_attribute_argument_type)
-        << Attr.getName() << AANT_ArgumentString;
-    return false;
-  }
-
-  Str = Literal->getString();
-  return true;
 }
 
 static void handleAliasAttr(Sema &S, Decl *D, const AttributeList &Attr) {
@@ -2267,16 +2258,9 @@ static void handleAvailabilityAttr(Sema &S, Decl *D,
   AvailabilityChange Obsoleted = Attr.getAvailabilityObsoleted();
   bool IsUnavailable = Attr.getUnavailableLoc().isValid();
   StringRef Str;
-  if (Attr.getMessageExpr()) {
-    const StringLiteral *SE = dyn_cast<StringLiteral>(Attr.getMessageExpr());
-    if (!SE || !SE->isAscii()) {
-      S.Diag(Attr.getMessageExpr()->getLocStart(),
-             diag::err_attribute_argument_type)
-        << Attr.getName() << AANT_ArgumentString;
-      return;
-    }
+  if (const StringLiteral *SE =
+          dyn_cast_or_null<StringLiteral>(Attr.getMessageExpr()))
     Str = SE->getString();
-  }
 
   AvailabilityAttr *NewAttr = S.mergeAvailabilityAttr(ND, Attr.getRange(), II,
                                                       Introduced.Version,
@@ -3876,18 +3860,11 @@ bool Sema::CheckCallingConvAttr(const AttributeList &attr, CallingConv &CC,
                                                              CC_C;
     break;
   case AttributeList::AT_Pcs: {
-    StringLiteral *Str = 0;
-    if (attr.isArgExpr(0))
-      Str = dyn_cast<StringLiteral>(attr.getArgAsExpr(0));
-    
-    if (!Str || !Str->isAscii()) {
-      Diag(attr.getLoc(), diag::err_attribute_argument_type) << attr.getName()
-        << AANT_ArgumentString;
+    StringRef StrRef;
+    if (!checkStringLiteralArgument(*this, StrRef, attr, 0)) {
       attr.setInvalid();
       return true;
     }
-
-    StringRef StrRef = Str->getString();
     if (StrRef == "aapcs") {
       CC = CC_AAPCS;
       break;
