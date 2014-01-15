@@ -1857,7 +1857,8 @@ public:
     AA_Converting,
     AA_Initializing,
     AA_Sending,
-    AA_Casting
+    AA_Casting,
+    AA_Passing_CFAudited
   };
 
   /// C++ Overloading.
@@ -7045,7 +7046,8 @@ public:
   // this routine performs the default function/array converions.
   AssignConvertType CheckSingleAssignmentConstraints(QualType LHSType,
                                                      ExprResult &RHS,
-                                                     bool Diagnose = true);
+                                                     bool Diagnose = true,
+                                                     bool DiagnoseCFAudited = false);
 
   // \brief If the lhs type is a transparent union, check whether we
   // can initialize the transparent union with the given expression.
@@ -7224,7 +7226,8 @@ public:
   /// retainable pointers and other pointer kinds.
   ARCConversionResult CheckObjCARCConversion(SourceRange castRange,
                                              QualType castType, Expr *&op,
-                                             CheckedConversionKind CCK);
+                                             CheckedConversionKind CCK,
+                                             bool DiagnoseCFAudited = false);
 
   Expr *stripARCUnbridgedCast(Expr *e);
   void diagnoseARCUnbridgedCast(Expr *e);
