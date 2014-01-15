@@ -6559,7 +6559,8 @@ void visualstudio::Link::ConstructJob(Compilation &C, const JobAction &JA,
   }
 
   if (!Args.hasArg(options::OPT_nostdlib) &&
-    !Args.hasArg(options::OPT_nostartfiles)) {
+      !Args.hasArg(options::OPT_nostartfiles) &&
+      !C.getDriver().IsCLMode()) {
     CmdArgs.push_back("-defaultlib:libcmt");
   }
 
