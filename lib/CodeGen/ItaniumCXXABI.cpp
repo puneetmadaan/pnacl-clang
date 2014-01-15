@@ -1144,7 +1144,7 @@ void ItaniumCXXABI::EmitGuardedInit(CodeGenFunction &CGF,
     SmallString<256> guardName;
     {
       llvm::raw_svector_ostream out(guardName);
-      getMangleContext().mangleItaniumGuardVariable(&D, out);
+      getMangleContext().mangleStaticGuardVariable(&D, out);
       out.flush();
     }
 
