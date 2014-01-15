@@ -1833,8 +1833,12 @@ static bool isConditionForTerminator(const Stmt *S, const Stmt *Cond) {
       return cast<SwitchStmt>(S)->getCond() == Cond;
     case Stmt::BinaryConditionalOperatorClass:
       return cast<BinaryConditionalOperator>(S)->getCond() == Cond;
-    case Stmt::ConditionalOperatorClass:
-      return cast<ConditionalOperator>(S)->getCond() == Cond;
+    case Stmt::ConditionalOperatorClass: {
+      const ConditionalOperator *CO = cast<ConditionalOperator>(S);
+      return CO->getCond() == Cond ||
+             CO->getLHS() == Cond ||
+             CO->getRHS() == Cond;
+    }
     case Stmt::ObjCForCollectionStmtClass:
       return cast<ObjCForCollectionStmt>(S)->getElement() == Cond;
     default:
@@ -1977,6 +1981,89 @@ static bool optimizeEdges(PathPieces &path, SourceManager &SM,
 
   // No changes.
   return hasChanges;
+}
+
+static void adjustLoopEdges(PathPieces &pieces, LocationContextMap &LCM,
+                            SourceManager &SM) {
+  // Retrieve the parent map for this path.
+  const LocationContext *LC = LCM[&pieces];
+  ParentMap &PM = LC->getParentMap();
+  PathPieces::iterator Prev = pieces.end();
+  for (PathPieces::iterator I = pieces.begin(), E = pieces.end(); I != E;
+       Prev = I, ++I) {
+    // Adjust edges in subpaths.
+    if (PathDiagnosticCallPiece *Call = dyn_cast<PathDiagnosticCallPiece>(*I)) {
+      adjustLoopEdges(Call->path, LCM, SM);
+      continue;
+    }
+
+    PathDiagnosticControlFlowPiece *PieceI =
+      dyn_cast<PathDiagnosticControlFlowPiece>(*I);
+
+    if (!PieceI)
+      continue;
+
+    // We are looking at two edges.  Is the second one incident
+    // on an expression (or subexpression) of a loop condition.
+    const Stmt *Dst = getLocStmt(PieceI->getEndLocation());
+    const Stmt *Src = getLocStmt(PieceI->getStartLocation());
+
+    if (!Dst || !Src)
+      continue;
+
+    const ForStmt *FS = 0;
+    const Stmt *S = Dst;
+    while (const Stmt *Parent = PM.getParentIgnoreParens(S)) {
+      FS = dyn_cast<ForStmt>(Parent);
+      if (FS) {
+        if (FS->getCond()->IgnoreParens() != S)
+          FS = 0;
+        break;
+      }
+      S = Parent;
+    }
+
+    // If 'FS' is non-null we have found a match where we have an edge
+    // incident on the condition of a for statement.
+    if (!FS)
+      continue;
+
+    // If the current source of the edge is the 'for', then there is nothing
+    // left to be done.
+    if (Src == FS)
+      continue;
+
+    // Now look at the previous edge.  We want to know if this was in the same
+    // "level" as the for statement.
+    const Stmt *SrcParent = PM.getParentIgnoreParens(Src);
+    const Stmt *FSParent = PM.getParentIgnoreParens(FS);
+    if (SrcParent && SrcParent == FSParent) {
+      PathDiagnosticLocation L(FS, SM, LC);
+      bool needsEdge = true;
+
+      if (Prev != E) {
+        if (PathDiagnosticControlFlowPiece *P =
+            dyn_cast<PathDiagnosticControlFlowPiece>(*Prev)) {
+          const Stmt *PrevSrc = getLocStmt(P->getStartLocation());
+          if (PrevSrc) {
+            const Stmt *PrevSrcParent = PM.getParentIgnoreParens(PrevSrc);
+            if (PrevSrcParent == FSParent) {
+              P->setEndLocation(L);
+              needsEdge = false;
+            }
+          }
+        }
+      }
+
+      if (needsEdge) {
+        PathDiagnosticControlFlowPiece *P =
+          new PathDiagnosticControlFlowPiece(PieceI->getStartLocation(), L);
+        pieces.insert(I, P);
+      }
+
+      PieceI->setStartLocation(L);
+    }
+  }
 }
 
 //===----------------------------------------------------------------------===//
@@ -2664,9 +2751,17 @@ bool GRBugReporter::generatePathDiagnostic(PathDiagnostic& PD,
       adjustCallLocations(PD.getMutablePieces());
 
       if (ActiveScheme == PathDiagnosticConsumer::AlternateExtensive) {
+        SourceManager &SM = getSourceManager();
+
+        // Reduce the number of edges from a very conservative set
+        // to an aesthetically pleasing subset that conveys the
+        // necessary information.
         OptimizedCallsSet OCS;
-        while (optimizeEdges(PD.getMutablePieces(), getSourceManager(),
-                             OCS, LCM)) {}
+        while (optimizeEdges(PD.getMutablePieces(), SM, OCS, LCM)) {}
+
+        // Adjust edges into loop conditions to make them more uniform
+        // and aesthetically pleasing.
+        adjustLoopEdges(PD.getMutablePieces(), LCM, SM);
       }
     }
 
