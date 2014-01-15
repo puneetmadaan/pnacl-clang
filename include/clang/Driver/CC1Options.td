@@ -474,6 +474,8 @@ def finstrument_functions_size : Separate<["-"], "finstrument-functions-size">,
   HelpText<"Minimum size of functions to instrument">;
 def fsized_deallocation : Flag<["-"], "fsized-deallocation">,
   HelpText<"Enable C++1y sized global deallocation functions">;
+def fobjc_subscripting_legacy_runtime : Flag<["-"], "fobjc-subscripting-legacy-runtime">,
+  HelpText<"Allow Objective-C array and dictionary subscripting in legacy runtime">;
 
 //===----------------------------------------------------------------------===//
 // Header Search Options
