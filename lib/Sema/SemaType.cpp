@@ -3840,8 +3840,8 @@ static void HandleAddressSpaceTypeAttribute(QualType &Type,
   llvm::APSInt addrSpace(32);
   if (ASArgExpr->isTypeDependent() || ASArgExpr->isValueDependent() ||
       !ASArgExpr->isIntegerConstantExpr(addrSpace, S.Context)) {
-    S.Diag(Attr.getLoc(), diag::err_attribute_address_space_not_int)
-      << ASArgExpr->getSourceRange();
+    S.Diag(Attr.getLoc(), diag::err_attribute_argument_not_int)
+      << Attr.getName()->getName() << ASArgExpr->getSourceRange();
     Attr.setInvalid();
     return;
   }
@@ -3936,8 +3936,8 @@ static bool handleObjCOwnershipTypeAttr(TypeProcessingState &state,
     AttrLoc = S.getSourceManager().getImmediateExpansionRange(AttrLoc).first;
 
   if (!attr.getParameterName()) {
-    S.Diag(AttrLoc, diag::err_attribute_argument_n_not_string)
-      << "objc_ownership" << 1;
+    S.Diag(AttrLoc, diag::err_attribute_argument_n_type)
+      << attr.getName() << 1 << 2 /*string*/;
     attr.setInvalid();
     return true;
   }
@@ -4072,8 +4072,8 @@ static bool handleObjCGCTypeAttr(TypeProcessingState &state,
 
   // Check the attribute arguments.
   if (!attr.getParameterName()) {
-    S.Diag(attr.getLoc(), diag::err_attribute_argument_n_not_string)
-      << "objc_gc" << 1;
+    S.Diag(attr.getLoc(), diag::err_attribute_argument_n_type)
+      << attr.getName() << 1 << 2 /*string*/;
     attr.setInvalid();
     return true;
   }
