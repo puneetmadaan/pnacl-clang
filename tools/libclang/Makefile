@@ -12,8 +12,12 @@ LIBRARYNAME = clang
 
 EXPORTED_SYMBOL_FILE = $(PROJ_SRC_DIR)/libclang.exports
 
-LINK_LIBS_IN_SHARED = 1
-SHARED_LIBRARY = 1
+# @LOCALMOD-BEGIN
+ifneq ($(HOST_OS),NativeClient)
+  LINK_LIBS_IN_SHARED = 1
+  SHARED_LIBRARY = 1
+endif
+# @LOCALMOD-END
 
 include $(CLANG_LEVEL)/../../Makefile.config
 LINK_COMPONENTS := $(TARGETS_TO_BUILD) asmparser bitreader support mc option

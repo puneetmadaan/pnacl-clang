@@ -16,17 +16,25 @@ LIBRARYNAME := clangBasic
 
 include $(CLANG_LEVEL)/Makefile
 
-SVN_REVISION := $(strip \
-        $(shell $(LLVM_SRC_ROOT)/utils/GetSourceVersion $(PROJ_SRC_DIR)/../..))
+#SVN_REVISION := $(strip \
+#        $(shell $(LLVM_SRC_ROOT)/utils/GetSourceVersion $(PROJ_SRC_DIR)/../..))
 
-SVN_REPOSITORY := $(strip \
-        $(shell $(LLVM_SRC_ROOT)/utils/GetRepositoryPath $(PROJ_SRC_DIR)/../..))
+#SVN_REPOSITORY := $(strip \
+#        $(shell $(LLVM_SRC_ROOT)/utils/GetRepositoryPath $(PROJ_SRC_DIR)/../..))
 
-LLVM_REVISION := $(strip \
-        $(shell $(LLVM_SRC_ROOT)/utils/GetSourceVersion $(LLVM_SRC_ROOT)))
+SVN_REVISION := 123
 
-LLVM_REPOSITORY := $(strip \
-        $(shell $(LLVM_SRC_ROOT)/utils/GetRepositoryPath $(LLVM_SRC_ROOT)))
+SVN_REPOSITORY := 456
+
+#LLVM_REVISION := $(strip \
+#        $(shell $(LLVM_SRC_ROOT)/utils/GetSourceVersion $(LLVM_SRC_ROOT)))
+
+#LLVM_REPOSITORY := $(strip \
+#        $(shell $(LLVM_SRC_ROOT)/utils/GetRepositoryPath $(LLVM_SRC_ROOT)))
+
+LLVM_REVISION := 123
+
+LLVM_REPOSITORY := 456
 
 CPP.Defines += -I$(PROJ_SRC_DIR)/../../include -I$(PROJ_OBJ_DIR)/../../include \
          -DSVN_REVISION='"$(SVN_REVISION)"' -DSVN_REPOSITORY='"$(SVN_REPOSITORY)"' \

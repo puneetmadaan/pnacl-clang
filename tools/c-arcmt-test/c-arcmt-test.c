@@ -106,7 +106,14 @@ static void flush_atexit(void) {
   fflush(stderr);
 }
 
+// @LOCALMOD-BEGIN
+#if defined(__native_client__)
+int main(int argc, char **argv_alt) {
+  const char **argv = (const char**) argv_alt;
+#else
 int main(int argc, const char **argv) {
+#endif
+// @LOCALMOD-END
   thread_info client_data;
 
   atexit(flush_atexit);

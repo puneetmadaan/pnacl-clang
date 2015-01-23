@@ -37,6 +37,9 @@
 
 #ifdef LLVM_ON_WIN32
 #include <windows.h>
+// @LOCALMOD-BEGIN
+#elif defined(__native_client__)
+// @LOCALMOD-END
 #else
 #include <dlfcn.h>
 #endif
@@ -69,6 +72,10 @@ const std::string &CIndexer::getClangResourcesPath() {
 #endif
 
   LibClangPath += llvm::sys::path::parent_path(path);
+// @LOCALMOD-BEGIN
+#elif defined(__native_client__)
+  // Nothing for now.
+// @LOCALMOD-END
 #else
   // This silly cast below avoids a C++ warning.
   Dl_info info;

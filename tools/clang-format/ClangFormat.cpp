@@ -265,7 +265,14 @@ static void PrintVersion() {
   OS << clang::getClangToolFullVersion("clang-format") << '\n';
 }
 
+// @LOCALMOD-BEGIN
+#if defined(__native_client__)
+int main(int argc, char **argv_alt) {
+  const char **argv = const_cast<const char**>(argv_alt);
+#else
 int main(int argc, const char **argv) {
+#endif
+// @LOCALMOD-END
   llvm::sys::PrintStackTraceOnErrorSignal();
 
   // Hide unrelated options.

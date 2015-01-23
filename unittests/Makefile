@@ -10,6 +10,15 @@
 # If CLANG_LEVEL is not set, then we are the top-level Makefile. Otherwise, we
 # are being included from a subdirectory makefile.
 
+ifeq ($(HOST_OS),NativeClient)
+all:
+	echo skipping
+
+install:
+	echo skipping
+
+else
+
 ifndef CLANG_LEVEL
 
 IS_UNITTEST_LEVEL := 1
@@ -32,3 +41,4 @@ MAKEFILE_UNITTEST_NO_INCLUDE_COMMON := 1
 include $(LLVM_SRC_ROOT)/unittests/Makefile.unittest
 
 endif  # IS_UNITTEST_LEVEL
+endif

@@ -339,7 +339,14 @@ static void printSourceRange(CharSourceRange range, ASTContext &Ctx,
 // Command line processing.
 //===----------------------------------------------------------------------===//
 
+// @LOCALMOD-BEGIN
+#if defined(__native_client__)
+int main(int argc, char **argv_alt) {
+  const char **argv = const_cast<const char **>(argv_alt);
+#else
 int main(int argc, const char **argv) {
+#endif
+// @LOCALMOD-END
   void *MainAddr = (void*) (intptr_t) GetExecutablePath;
   llvm::sys::PrintStackTraceOnErrorSignal();
 

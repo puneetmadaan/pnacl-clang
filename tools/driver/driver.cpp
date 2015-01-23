@@ -293,7 +293,14 @@ namespace {
   };
 }
 
+// @LOCALMOD-BEGIN
+#if defined(__native_client__)
+int main(int argc_, char **argv_alt_) {
+  const char **argv_ = const_cast<const char **>(argv_alt_);
+#else
 int main(int argc_, const char **argv_) {
+#endif
+// @LOCALMOD-END
   llvm::sys::PrintStackTraceOnErrorSignal();
   llvm::PrettyStackTraceProgram X(argc_, argv_);
 

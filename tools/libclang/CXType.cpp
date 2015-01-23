@@ -23,6 +23,14 @@
 #include "clang/AST/Type.h"
 #include "clang/Frontend/ASTUnit.h"
 
+// @LOCALMOD-BEGIN
+#if defined(__pnacl__)
+#define LLONG_MAX 9223372036854775807LL
+#define LLONG_MIN (-LLONG_MAX-1)
+#define ULLONG_MAX (LLONG_MAX * 2ULL + 1)
+#endif
+// @LOCALMOD-END
+
 using namespace clang;
 
 static CXTypeKind GetBuiltinTypeKind(const BuiltinType *BT) {
